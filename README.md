@@ -1,8 +1,8 @@
-# 9Router v3
+# ApiRouter v3
 
-OpenAI-compatible AI gateway with provider registry, model aliases, fallback routing, real SSE streaming, circuit breakers, health checks and metrics.
+Cổng (gateway) AI tương thích OpenAI, có provider registry, alias model, routing fallback, streaming SSE thật, circuit breaker, health check và metrics.
 
-## Architecture
+## Kiến trúc
 
 ```text
 Client
@@ -13,43 +13,43 @@ Client
        -> CircuitBreaker
        -> retry / Retry-After
        -> ProviderRegistry
-            -> ChatGPT-Web (PRIMARY, refresh-token auth, true SSE)
+            -> ChatGPT-Web (PRIMARY, xác thực bằng refresh-token, SSE thật)
             -> Groq (fallback)
             -> OpenRouter (fallback)
-  -> OpenAI-compatible response / SSE
+  -> Phản hồi / SSE tương thích OpenAI
 ```
 
-## Main endpoints
+## Các endpoint chính
 
-- `GET /health` - provider health + circuit state
-- `GET /metrics` - Prometheus text metrics
-- `GET /metrics/json` - JSON metrics
-- `GET /v1/models` - configured logical model aliases
-- `POST /v1/chat/completions` - OpenAI-compatible completion and true SSE streaming
+- `GET /health` - trạng thái health của provider + trạng thái circuit breaker
+- `GET /metrics` - metrics dạng text Prometheus
+- `GET /metrics/json` - metrics dạng JSON
+- `GET /v1/models` - danh sách alias model logic đã cấu hình
+- `POST /v1/chat/completions` - completion tương thích OpenAI, hỗ trợ streaming SSE thật
 
-## Model aliases
+## Alias model
 
-The client can continue sending logical names such as `gpt-4o-mini` while the router chooses the real provider model.
+Client có thể tiếp tục gửi tên logic như `gpt-4o-mini`, router sẽ tự chọn model thật của provider tương ứng.
 
-Routing can be overridden with environment variables such as:
+Có thể override routing bằng biến môi trường, ví dụ:
 
 ```env
 ALIAS_GPT_4O_MINI=groq:llama-3.1-8b-instant,openrouter:google/gemini-2.0-flash-001
 ```
 
-For direct routing, `provider:model` syntax is supported, e.g. `openrouter:google/gemini-2.5-flash`.
+Muốn route thẳng, dùng cú pháp `provider:model`, ví dụ `openrouter:google/gemini-2.5-flash`.
 
 ## Circuit breaker
 
-A provider opens its circuit after `CIRCUIT_FAILURE_THRESHOLD` retryable failures. After `CIRCUIT_RECOVERY_SECONDS`, a single half-open request is allowed to probe recovery.
+Một provider sẽ mở circuit sau khi có `CIRCUIT_FAILURE_THRESHOLD` lần lỗi có thể retry. Sau `CIRCUIT_RECOVERY_SECONDS`, hệ thống cho phép 1 request half-open để thử dò lại khả năng phục hồi.
 
 ## Streaming
 
-ChatGPT-Web is the primary streaming provider. It uses the OAuth refresh token to obtain an access token, calls the ChatGPT Web conversation endpoint with SSE, and forwards incremental deltas. Groq and OpenRouter remain streaming fallbacks.
+ChatGPT-Web là provider streaming chính. Nó dùng OAuth refresh token để lấy access token, gọi endpoint conversation của ChatGPT Web bằng SSE, và forward các delta gia tăng. Groq và OpenRouter vẫn là fallback hỗ trợ streaming.
 
-A transparent provider fallback is possible before the first stream chunk. Once chunks have reached the client, switching providers would corrupt the conversation stream, so the router emits a stream error instead.
+Router có thể chuyển provider trong suốt trước khi chunk stream đầu tiên được gửi đi. Sau khi đã có chunk tới client, việc đổi provider sẽ làm hỏng luồng hội thoại, nên router sẽ phát lỗi stream thay vì âm thầm chuyển đổi.
 
-## Run locally
+## Chạy local
 
 ```bash
 pip install -r requirements.txt
@@ -57,28 +57,28 @@ cp .env.example .env
 uvicorn app:app --host 0.0.0.0 --port 10000
 ```
 
+## Thứ tự routing
 
-## Routing order
-ChatGPT Web is the primary provider. For each logical model alias, routing uses ChatGPT first, then Groq, then OpenRouter.
+ChatGPT Web là provider chính. Với mỗi alias model logic, thứ tự routing là: ChatGPT trước, rồi tới Groq, rồi tới OpenRouter.
 
-## ChatGPT authentication
-Set `CHATGPT_REFRESH_TOKEN` in `.env`. The application refreshes an access token through the same Auth0 refresh-token flow used by the original 9Router implementation and caches the access token until near expiry. Never commit the refresh token to source control.
+## Xác thực ChatGPT
+
+Đặt `CHATGPT_REFRESH_TOKEN` trong `.env`. Ứng dụng refresh access token qua cùng luồng Auth0 refresh-token mà bản triển khai ApiRouter gốc sử dụng, và cache access token cho tới gần lúc hết hạn. Tuyệt đối không commit refresh token vào source control.
 
 ## Streaming
-When `stream=true`, ChatGPT Web SSE is consumed incrementally and converted to OpenAI-compatible SSE chunks. Because the ChatGPT Web endpoint sends cumulative text, the provider emits only the newly-added text delta. If a stream has already emitted data, the router does not switch providers mid-stream.
 
+Khi `stream=true`, SSE của ChatGPT Web được đọc tuần tự và chuyển đổi thành các chunk SSE tương thích OpenAI. Vì endpoint ChatGPT Web gửi text dạng tích lũy, provider chỉ phát ra phần delta text mới được thêm vào. Nếu một stream đã phát dữ liệu ra rồi, router sẽ không đổi provider giữa chừng.
 
-## ChatGPT token longevity
+## Độ bền của token ChatGPT
 
-ChatGPT Web remains the primary provider. The router now caches access tokens, accepts and persists a rotated refresh token when returned, and can run a background keep-alive refresh. Set `CHATGPT_TOKEN_STATE_FILE` to a persistent storage path so a rotated token survives restarts, and use `CHATGPT_KEEPALIVE_HOURS` to control refresh cadence (default 6). The keep-alive can reset an issuer's idle lifetime when allowed, but no client can extend an issuer-defined absolute/max lifetime.
+ChatGPT Web vẫn là provider chính. Router cache access token, chấp nhận và lưu lại refresh token đã rotate khi được trả về, và có thể chạy một tác vụ nền keep-alive để refresh định kỳ. Đặt `CHATGPT_TOKEN_STATE_FILE` trỏ tới một đường dẫn lưu trữ bền vững để token đã rotate không bị mất khi restart, và dùng `CHATGPT_KEEPALIVE_HOURS` để điều chỉnh tần suất refresh (mặc định 6 giờ). Keep-alive có thể reset thời gian sống idle của phía cấp token khi được cho phép, nhưng không client nào có thể kéo dài thời gian sống tối đa tuyệt đối do phía cấp token quy định.
 
-## Native ChatGPT Web realtime/search (100% free)
+## Tìm kiếm/realtime gốc của ChatGPT Web (100% miễn phí)
 
-9Router does not call Tavily, Brave, Bing, Google Search, or any other external search API.
-When `CHATGPT_WEB_SEARCH_MODE=auto`, realtime-looking requests receive a small instruction hint
-inside the ChatGPT Web request asking the native ChatGPT Web assistant to use its own browsing/search
-capability when available. The router itself never fetches web pages.
+ApiRouter không gọi Tavily, Brave, Bing, Google Search, hay bất kỳ API tìm kiếm ngoài nào khác.
+Khi `CHATGPT_WEB_SEARCH_MODE=auto`, các request có vẻ cần thông tin thời gian thực sẽ được thêm một gợi ý nhỏ
+trong request gửi tới ChatGPT Web, yêu cầu assistant gốc của ChatGPT Web dùng khả năng duyệt web/tìm kiếm riêng của nó nếu có sẵn. Bản thân router không bao giờ tự fetch trang web.
 
-This is deliberately a best-effort bridge to the private ChatGPT Web backend. It does **not** guarantee
-that every request will trigger native search because that decision is controlled by ChatGPT Web itself.
-No paid or external search dependency is added.
+Đây chủ động là một cầu nối "best-effort" tới backend riêng tư của ChatGPT Web. Nó **không** đảm bảo
+mọi request đều kích hoạt được tìm kiếm gốc, vì quyết định đó do chính ChatGPT Web kiểm soát.
+Không có bất kỳ phụ thuộc tìm kiếm trả phí hay bên ngoài nào được thêm vào.
