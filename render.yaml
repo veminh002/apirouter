@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: 9router-v2
+    env: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ROUTER9_API_KEY
+        generateValue: true
+      - key: CHATGPT_REFRESH_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ENABLE_CHATGPT
+        value: "true"
+      - key: ENABLE_GROQ
+        value: "true"
+      - key: ENABLE_OPENROUTER
+        value: "true"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "60"
+      - key: MAX_CONCURRENT_REQUESTS
+        value: "8"
