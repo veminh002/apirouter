@@ -378,10 +378,8 @@ class ChatGPTProvider(BaseProvider):
             'stream': True,
             'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': prompt}]}],
         }
-        if req.temperature is not None:
-            payload['temperature'] = req.temperature
-        if req.top_p is not None:
-            payload['top_p'] = req.top_p
+        # Codex Responses rejects the Chat Completions sampling parameters
+        # `temperature` and `top_p`; intentionally omit them.
         if req.max_completion_tokens is not None:
             payload['max_output_tokens'] = req.max_completion_tokens
         elif req.max_tokens is not None:
