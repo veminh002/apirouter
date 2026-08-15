@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     chatgpt_client_id: str = ''
     chatgpt_redirect_uri: str = ''
     chatgpt_auth_url: str = 'https://auth0.openai.com/oauth/token'
+    chatgpt_account_id: str = ''
+    chatgpt_originator: str = 'codex_cli_rs'
+    chatgpt_version: str = '0.0.1'
+    chatgpt_responses_ws_url: str = 'wss://chatgpt.com/backend-api/codex/responses'
+    chatgpt_responses_http_url: str = 'https://chatgpt.com/backend-api/codex/responses'
     chatgpt_token_state_file: str = ''
     chatgpt_keepalive_hours: float = 6.0
     chatgpt_web_search_mode: str = 'auto'
