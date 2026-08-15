@@ -496,21 +496,46 @@ class ChatGPTProvider(BaseProvider):
                 )
 
             final_text = ''
+            raw_lines = []
             for line in response.iter_lines():
                 if not line:
                     continue
                 if isinstance(line, bytes):
                     line = line.decode('utf-8', 'ignore')
-                if not line.startswith('data:'):
+                line = line.strip()
+                if not line:
                     continue
-                data = line[5:].strip()
+                if line.startswith('data:'):
+                    data = line[5:].strip()
+                else:
+                    # Some upstream/proxy responses may return a plain JSON
+                    # object instead of SSE framing.
+                    data = line
                 if data == '[DONE]':
                     continue
+                raw_lines.append(data)
                 try:
                     obj = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-                final_text += self._extract_text(obj)
+                if isinstance(obj, dict):
+                    final_text += self._extract_text(obj)
+                    # Accept a conventional OpenAI-compatible response too.
+                    if not final_text:
+                        choices = obj.get('choices') or []
+                        if choices:
+                            message = choices[0].get('message') or {}
+                            content = message.get('content')
+                            if isinstance(content, str):
+                                final_text += content
+
+            if not final_text:
+                raise ProviderError(
+                    self.name,
+                    'ChatGPT Responses returned no assistant text',
+                    502,
+                    True,
+                )
 
             response_data = {
                 'id': f'chatcmpl-{uuid.uuid4().hex}',
