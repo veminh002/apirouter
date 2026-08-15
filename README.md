@@ -1,4 +1,4 @@
-# ApiRouter v4
+# ApiRouter v3
 
 Cổng (gateway) AI tương thích OpenAI, có provider registry, alias model, routing fallback, streaming SSE thật, circuit breaker, health check và metrics.
 
@@ -13,7 +13,7 @@ Client
        -> CircuitBreaker
        -> retry / Retry-After
        -> ProviderRegistry
-            -> ChatGPT-Web (PRIMARY, ChatGPT-authenticated Responses WebSocket + HTTPS/SSE fallback)
+            -> ChatGPT-Web (PRIMARY, xác thực bằng refresh-token, SSE thật)
             -> Groq (fallback)
             -> OpenRouter (fallback)
   -> Phản hồi / SSE tương thích OpenAI
@@ -45,7 +45,7 @@ Một provider sẽ mở circuit sau khi có `CIRCUIT_FAILURE_THRESHOLD` lần l
 
 ## Streaming
 
-ChatGPT-Web là provider streaming chính. Nó dùng OAuth refresh token để lấy access token, dùng Responses WebSocket tại `/backend-api/codex/responses` trước, sau đó fallback sang HTTPS/SSE khi WebSocket không khả dụng. Groq và OpenRouter vẫn là fallback hỗ trợ streaming.
+ChatGPT-Web là provider streaming chính. Nó dùng OAuth refresh token để lấy access token, gọi endpoint conversation của ChatGPT Web bằng SSE, và forward các delta gia tăng. Groq và OpenRouter vẫn là fallback hỗ trợ streaming.
 
 Router có thể chuyển provider trong suốt trước khi chunk stream đầu tiên được gửi đi. Sau khi đã có chunk tới client, việc đổi provider sẽ làm hỏng luồng hội thoại, nên router sẽ phát lỗi stream thay vì âm thầm chuyển đổi.
 
