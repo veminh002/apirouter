@@ -317,8 +317,33 @@ class ChatGPTProvider(BaseProvider):
     async def access_token(self) -> str:
         async with self.lock:
             now = time.time()
+
+            # A Web session access token can be JWT-valid and unexpired while
+            # still lacking the Codex connector scopes required by the
+            # /backend-api/codex/responses route. Never keep using such a token
+            # when a refresh token is available: refresh first and re-evaluate
+            # the newly issued credential.
             if self.cached_access_token and (self.expires_at == 0.0 or now < self.expires_at - 60):
-                return self.cached_access_token
+                diagnostic = self.token_diagnostic(
+                    self.cached_access_token,
+                    self.account_id or self._extract_account_id(self.cached_access_token, self.id_token) or '',
+                )
+                if not diagnostic['missing_scopes']:
+                    return self.cached_access_token
+                if not self.refresh_token:
+                    raise ProviderError(
+                        self.name,
+                        'ChatGPT token missing Codex scopes; sign in again via /auth/chatgpt to obtain a Codex OAuth token. '
+                        f'auth_diagnostic={json.dumps(diagnostic, separators=(",", ":"))}',
+                        401,
+                        False,
+                    )
+                self.log.info(
+                    'Cached ChatGPT token lacks Codex scopes; refreshing OAuth credential instead of using the Web session token.'
+                )
+                self.cached_access_token = None
+                self.expires_at = 0.0
+
             if not self.refresh_token:
                 raise ProviderError(self.name, 'ChatGPT authentication is not configured. Open /auth/chatgpt to sign in.', 503, False)
 
@@ -353,10 +378,23 @@ class ChatGPTProvider(BaseProvider):
             if not token:
                 raise ProviderError(self.name, 'No access_token in refresh response', 502, False)
 
-            self.cached_access_token = str(token)
+            new_access_token = str(token)
+            new_id_token = str(data.get('id_token') or self.id_token)
+            new_account_id = self._extract_account_id(new_access_token, new_id_token) or self.account_id
+            diagnostic = self.token_diagnostic(new_access_token, new_account_id)
+            if diagnostic['missing_scopes']:
+                raise ProviderError(
+                    self.name,
+                    'Refreshed ChatGPT token is still missing Codex scopes; the OAuth client/authorization flow did not grant the required scopes. '
+                    f'auth_diagnostic={json.dumps(diagnostic, separators=(",", ":"))}',
+                    401,
+                    False,
+                )
+
+            self.cached_access_token = new_access_token
             self.refresh_token = str(data.get('refresh_token') or self.refresh_token)
-            self.id_token = str(data.get('id_token') or self.id_token)
-            self.account_id = self._extract_account_id(self.cached_access_token, self.id_token) or self.account_id
+            self.id_token = new_id_token
+            self.account_id = new_account_id
             self.expires_at = time.time() + max(60, int(data.get('expires_in', 3600)))
             try:
                 self._persist_token_state()
