@@ -12,6 +12,12 @@ services:
         generateValue: true
       - key: CHATGPT_REFRESH_TOKEN
         sync: false
+      - key: CHATGPT_ACCESS_TOKEN
+        sync: false
+      - key: CHATGPT_CLIENT_ID
+        sync: false
+      - key: CHATGPT_REDIRECT_URI
+        value: "com.openai.chat://auth0.openai.com/ios/com.openai.chat/callback"
       - key: GROQ_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY
@@ -19,9 +25,9 @@ services:
       - key: ENABLE_CHATGPT
         value: "true"
       - key: ENABLE_GROQ
-        value: "true"
+        value: "false"
       - key: ENABLE_OPENROUTER
-        value: "true"
+        value: "false"
       - key: RATE_LIMIT_PER_MINUTE
         value: "60"
       - key: MAX_CONCURRENT_REQUESTS
