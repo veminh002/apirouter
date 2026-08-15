@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     @property
     def configured_providers(self) -> List[str]:
         providers = []
-        if self.enable_chatgpt and (self.chatgpt_access_token or self.chatgpt_refresh_token):
+        if self.enable_chatgpt:
             providers.append('chatgpt')
         if self.enable_groq and self.groq_api_key:
             providers.append('groq')

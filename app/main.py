@@ -154,16 +154,26 @@ async def chatgpt_auth_callback_post(request: Request):
 async def chatgpt_auth_status():
     if chatgpt_provider is None:
         return {'enabled': False}
-    token = chatgpt_provider.cached_access_token
-    if not token:
-        return {'enabled': True, 'authenticated': False, 'message': 'Open /auth/chatgpt to sign in.'}
-    diagnostic = chatgpt_provider.token_diagnostic(token, chatgpt_provider.account_id)
-    return {
-        'enabled': True,
-        'authenticated': bool(chatgpt_provider.account_id and not diagnostic['token_expired'] and not diagnostic['missing_scopes']),
-        'account_id_present': bool(chatgpt_provider.account_id),
-        'diagnostic': diagnostic,
-    }
+    try:
+        token = await chatgpt_provider.access_token()
+        diagnostic = chatgpt_provider.token_diagnostic(
+            token,
+            chatgpt_provider.account_id or chatgpt_provider._extract_account_id(token, chatgpt_provider.id_token) or '',
+        )
+        return {
+            'enabled': True,
+            'authenticated': not diagnostic['token_expired'] and not diagnostic['missing_scopes'] and bool(diagnostic['account_id']),
+            'account_id_present': bool(diagnostic['account_id']),
+            'diagnostic': diagnostic,
+        }
+    except ProviderError as exc:
+        return {
+            'enabled': True,
+            'authenticated': False,
+            'account_id_present': bool(chatgpt_provider.account_id),
+            'error': str(exc),
+            'status_code': exc.status_code,
+        }
 
 
 @app.get('/health')
