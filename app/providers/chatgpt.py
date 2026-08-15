@@ -602,7 +602,14 @@ class ChatGPTProvider(BaseProvider):
 
         try:
             if response.status_code >= 400:
-                text = (response.text or '')[:1000]
+                # This request was opened with stream=True, so curl_cffi has not
+                # buffered the body yet. response.text can read empty/partial
+                # content unless we explicitly drain the stream first.
+                try:
+                    raw_body = b''.join(response.iter_content())
+                except Exception:
+                    raw_body = b''
+                text = raw_body.decode('utf-8', 'ignore')[:1000]
                 # Some upstream 4xx responses have an empty body. Include only
                 # safe request metadata so the exact rejected shape is visible
                 # in Render logs without leaking credentials or message text.
@@ -760,7 +767,12 @@ class ChatGPTProvider(BaseProvider):
                 response = cffi_requests.post(self.responses_url, headers=self._headers(token), json=payload, impersonate='chrome120', timeout=self.timeout, stream=True)
                 if response.status_code >= 400:
                     retryable = response.status_code in (408, 409, 425, 429) or response.status_code >= 500
-                    loop.call_soon_threadsafe(queue.put_nowait, ProviderError(self.name, f'ChatGPT Responses HTTP {response.status_code}: {response.text[:500]}', response.status_code, retryable))
+                    try:
+                        raw_body = b''.join(response.iter_content())
+                    except Exception:
+                        raw_body = b''
+                    body_text = raw_body.decode('utf-8', 'ignore')[:500]
+                    loop.call_soon_threadsafe(queue.put_nowait, ProviderError(self.name, f'ChatGPT Responses HTTP {response.status_code}: {body_text}', response.status_code, retryable))
                     return
                 for line in response.iter_lines():
                     if not line:
