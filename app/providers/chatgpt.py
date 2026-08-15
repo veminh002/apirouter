@@ -525,12 +525,9 @@ class ChatGPTProvider(BaseProvider):
             'stream': True,
             'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': prompt}]}],
         }
-        # Codex Responses rejects the Chat Completions sampling parameters
-        # `temperature` and `top_p`; intentionally omit them.
-        if req.max_completion_tokens is not None:
-            payload['max_output_tokens'] = req.max_completion_tokens
-        elif req.max_tokens is not None:
-            payload['max_output_tokens'] = req.max_tokens
+        # Codex's ChatGPT Responses endpoint is stricter than the public
+        # Chat Completions schema. Keep the upstream payload deliberately
+        # minimal; do not forward sampling/token-limit parameters.
         if should_hint_search:
             payload['metadata'] = {'9router_web_search_hint': True, 'mode': mode}
         return payload
@@ -605,11 +602,34 @@ class ChatGPTProvider(BaseProvider):
 
         try:
             if response.status_code >= 400:
-                text = (response.text or '')[:500]
+                text = (response.text or '')[:1000]
+                # Some upstream 4xx responses have an empty body. Include only
+                # safe request metadata so the exact rejected shape is visible
+                # in Render logs without leaking credentials or message text.
+                safe_meta = {
+                    'model': provider_model,
+                    'payload_keys': sorted(payload.keys()),
+                    'input_items': len(payload.get('input') or []),
+                    'input_chars': sum(
+                        len(str(block.get('text', '')))
+                        for item in (payload.get('input') or [])
+                        if isinstance(item, dict)
+                        for block in (item.get('content') or [])
+                        if isinstance(block, dict)
+                    ),
+                    'response_content_type': response.headers.get('content-type'),
+                }
+                detail = text or json.dumps(safe_meta, separators=(',', ':'))
+                self.log.warning(
+                    'ChatGPT Responses rejected request: status=%s meta=%s body=%s',
+                    response.status_code,
+                    json.dumps(safe_meta, separators=(',', ':')),
+                    text or '<empty>',
+                )
                 retryable = response.status_code in (408, 409, 425, 429) or response.status_code >= 500
                 raise ProviderError(
                     self.name,
-                    f'ChatGPT Responses HTTP {response.status_code}: {text}',
+                    f'ChatGPT Responses HTTP {response.status_code}: {detail}',
                     response.status_code,
                     retryable,
                 )
