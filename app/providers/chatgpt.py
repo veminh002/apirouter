@@ -9,6 +9,12 @@ import tempfile
 import time
 import uuid
 from typing import Any, AsyncIterator, Dict, Optional
+
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+except ImportError:  # pragma: no cover
+    Fernet = None
+    InvalidToken = Exception
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from .base import BaseProvider, ProviderError, ProviderHealth
@@ -35,6 +41,8 @@ class ChatGPTProvider(BaseProvider):
         refresh_token: str,
         timeout: float,
         token_state_file: str = '',
+        database_url: str = '',
+        token_encryption_key: str = '',
         keepalive_hours: float = 6.0,
         web_search_mode: str = 'auto',
         web_search_instruction: str = '',
@@ -52,7 +60,11 @@ class ChatGPTProvider(BaseProvider):
     ):
         self.timeout = timeout
         self.token_state_file = token_state_file.strip()
+        self.database_url = database_url.strip()
+        self.token_encryption_key = token_encryption_key.strip()
         self.keepalive_hours = max(0.25, float(keepalive_hours))
+        self._db_ready = False
+        self._init_persistent_store()
         self.web_search_mode = (web_search_mode or 'auto').strip().lower()
         self.web_search_instruction = (web_search_instruction or '').strip()
         self.cached_access_token: Optional[str] = None
@@ -87,7 +99,75 @@ class ChatGPTProvider(BaseProvider):
         if self.cached_access_token and not self.account_id:
             self.account_id = self._extract_account_id(self.cached_access_token, self.id_token) or ''
 
+    def _fernet(self):
+        if not self.token_encryption_key:
+            return None
+        if Fernet is None:
+            raise RuntimeError('cryptography is required for encrypted ChatGPT credential storage')
+        try:
+            return Fernet(self.token_encryption_key.encode())
+        except Exception as exc:
+            raise RuntimeError('CHATGPT_TOKEN_ENCRYPTION_KEY is not a valid Fernet key') from exc
+
+    def _init_persistent_store(self) -> None:
+        """Create the PostgreSQL credential table once; never store tokens in plaintext."""
+        if not self.database_url:
+            return
+        if not self.token_encryption_key:
+            self.log.warning('DATABASE_URL is configured but CHATGPT_TOKEN_ENCRYPTION_KEY is missing; PostgreSQL credential persistence is disabled.')
+            return
+        try:
+            import psycopg
+            with psycopg.connect(self.database_url, connect_timeout=10) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS router9_chatgpt_credentials (
+                        credential_key TEXT PRIMARY KEY,
+                        payload TEXT NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                """)
+                conn.commit()
+            self._db_ready = True
+        except Exception as exc:
+            self.log.error('Could not initialize PostgreSQL credential store: %s', exc)
+
+    def _load_db_state(self) -> Dict[str, Any]:
+        if not self._db_ready:
+            return {}
+        try:
+            import psycopg
+            with psycopg.connect(self.database_url, connect_timeout=10) as conn:
+                row = conn.execute(
+                    "SELECT payload FROM router9_chatgpt_credentials WHERE credential_key = %s",
+                    ('default',),
+                ).fetchone()
+            if not row:
+                return {}
+            token_blob = self._fernet().decrypt(str(row[0]).encode()).decode()
+            data = json.loads(token_blob)
+            return data if isinstance(data, dict) else {}
+        except Exception as exc:
+            self.log.warning('Could not load ChatGPT credential from PostgreSQL: %s', exc)
+            return {}
+
+    def _save_db_state(self, data: Dict[str, Any]) -> None:
+        if not self._db_ready:
+            return
+        blob = self._fernet().encrypt(json.dumps(data, separators=(',', ':')).encode()).decode()
+        import psycopg
+        with psycopg.connect(self.database_url, connect_timeout=10) as conn:
+            conn.execute("""
+                INSERT INTO router9_chatgpt_credentials (credential_key, payload, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (credential_key)
+                DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()
+            """, ('default', blob))
+            conn.commit()
+
     def _load_token_state(self) -> Dict[str, Any]:
+        db_state = self._load_db_state()
+        if db_state:
+            return db_state
         if not self.token_state_file:
             return {}
         try:
@@ -119,11 +199,6 @@ class ChatGPTProvider(BaseProvider):
         return bool(self.cached_access_token or self.refresh_token)
 
     def _persist_token_state(self) -> None:
-        if not self.token_state_file:
-            return
-        path = os.path.abspath(self.token_state_file)
-        directory = os.path.dirname(path) or '.'
-        os.makedirs(directory, exist_ok=True)
         data = {
             'refresh_token': self.refresh_token,
             'access_token': self.cached_access_token or '',
@@ -132,6 +207,17 @@ class ChatGPTProvider(BaseProvider):
             'account_id': self.account_id,
             'updated_at': int(time.time()),
         }
+        if self._db_ready:
+            try:
+                self._save_db_state(data)
+                return
+            except Exception as exc:
+                self.log.error('PostgreSQL credential persistence failed; falling back to local state: %s', exc)
+        if not self.token_state_file:
+            return
+        path = os.path.abspath(self.token_state_file)
+        directory = os.path.dirname(path) or '.'
+        os.makedirs(directory, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix='.chatgpt-token-', dir=directory, text=True)
         try:
             with os.fdopen(fd, 'w', encoding='utf-8') as fh:
@@ -580,10 +666,10 @@ class ChatGPTProvider(BaseProvider):
                 }],
             }
             return ProviderResult(
-                self.name,
-                response_data,
-                provider_model,
-                int((time.perf_counter() - started) * 1000),
+                provider=self.name,
+                response=response_data,
+                model=provider_model,
+                latency_ms=int((time.perf_counter() - started) * 1000),
             )
         except ProviderError:
             raise
