@@ -1,6 +1,6 @@
 from functools import lru_cache
 from typing import List
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     chatgpt_refresh_token: str = ''
     chatgpt_access_token: str = ''
     chatgpt_access_token_expires_in: int = 0
+    chatgpt_client_id: str = ''
+    chatgpt_redirect_uri: str = ''
+    chatgpt_auth_url: str = 'https://auth0.openai.com/oauth/token'
     chatgpt_token_state_file: str = ''
     chatgpt_keepalive_hours: float = 6.0
     chatgpt_web_search_mode: str = 'auto'
@@ -47,10 +50,19 @@ class Settings(BaseSettings):
     alias_gpt_4_turbo: str = 'chatgpt:gpt-4-turbo,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
     alias_gpt_3_5_turbo: str = 'chatgpt:gpt-3.5-turbo,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
 
+    @field_validator('enable_chatgpt', 'enable_groq', 'enable_openrouter', mode='before')
+    @classmethod
+    def normalize_boolean(cls, value):
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            aliases = {'fasle': 'false', 'ture': 'true', 'flase': 'false', 'treu': 'true'}
+            value = aliases.get(normalized, normalized)
+        return value
+
     @property
     def configured_providers(self) -> List[str]:
         providers = []
-        if self.enable_chatgpt and (self.chatgpt_refresh_token or self.chatgpt_access_token):
+        if self.enable_chatgpt and (self.chatgpt_access_token or self.chatgpt_refresh_token):
             providers.append('chatgpt')
         if self.enable_groq and self.groq_api_key:
             providers.append('groq')
