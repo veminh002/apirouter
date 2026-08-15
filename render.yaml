@@ -16,8 +16,18 @@ services:
         sync: false
       - key: CHATGPT_CLIENT_ID
         sync: false
+      - key: CHATGPT_ACCOUNT_ID
+        sync: false
       - key: CHATGPT_REDIRECT_URI
         value: "com.openai.chat://auth0.openai.com/ios/com.openai.chat/callback"
+      - key: CHATGPT_ORIGINATOR
+        value: "codex_cli_rs"
+      - key: CHATGPT_VERSION
+        value: "0.0.1"
+      - key: CHATGPT_RESPONSES_WS_URL
+        value: "wss://chatgpt.com/backend-api/codex/responses"
+      - key: CHATGPT_RESPONSES_HTTP_URL
+        value: "https://chatgpt.com/backend-api/codex/responses"
       - key: GROQ_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY
