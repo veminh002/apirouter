@@ -24,7 +24,7 @@ from .routing import ModelAlias, RoutingPolicy
 logger = logging.getLogger('9router')
 
 settings = get_settings()
-app = FastAPI(title='9Router', version='4.0.0')
+app = FastAPI(title='9Router', version='3.2.0')
 limiter = RateLimiter(settings.rate_limit_per_minute)
 semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
 metrics = Metrics()
@@ -46,10 +46,15 @@ if 'chatgpt' in settings.configured_providers:
         settings.chatgpt_redirect_uri,
         settings.chatgpt_auth_url,
         settings.chatgpt_account_id,
+        settings.chatgpt_responses_url,
+        {
+            'gpt-4o': settings.chatgpt_model_gpt_4o,
+            'gpt-4o-mini': settings.chatgpt_model_gpt_4o_mini,
+            'gpt-4-turbo': settings.chatgpt_model_gpt_4_turbo,
+            'gpt-3.5-turbo': settings.chatgpt_model_gpt_3_5_turbo,
+        },
         settings.chatgpt_originator,
         settings.chatgpt_version,
-        settings.chatgpt_responses_ws_url,
-        settings.chatgpt_responses_http_url,
     )
     registry.register(chatgpt_provider)
 if 'groq' in settings.configured_providers:
