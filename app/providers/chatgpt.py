@@ -480,36 +480,52 @@ class ChatGPTProvider(BaseProvider):
         self.account_id = self.account_id or self._extract_account_id(token, self.id_token) or ''
         diagnostic = self.token_diagnostic(token, self.account_id)
         if not self.account_id:
-            raise ProviderError(self.name, f'ChatGPT authentication missing account ID; auth_diagnostic={json.dumps(diagnostic, separators=(",", ":"))}', 401, False)
+            raise ProviderError(
+                self.name,
+                f'ChatGPT authentication missing account ID; auth_diagnostic={json.dumps(diagnostic, separators=(",", ":"))}',
+                401,
+                False,
+            )
         if diagnostic['missing_scopes']:
-            raise ProviderError(self.name, f'ChatGPT token missing Codex scopes; auth_diagnostic={json.dumps(diagnostic, separators=(",", ":"))}', 401, False)
+            raise ProviderError(
+                self.name,
+                f'ChatGPT token missing Codex scopes; auth_diagnostic={json.dumps(diagnostic, separators=(",", ":"))}',
+                401,
+                False,
+            )
 
         payload = self._payload(req, provider_model)
+        # /v1/chat/completions with stream=false must use the non-streaming
+        # Responses representation. The previous implementation requested an
+        # SSE stream and then consumed it synchronously, which could raise
+        # curl_cffi's "stream mode is not enabled" assertion or leak an
+        # unhandled provider exception as HTTP 500.
+        payload['stream'] = False
         cffi_requests = self._requests()
 
         def call():
-            # The Codex Responses endpoint is an SSE endpoint and requires
-            # curl_cffi streaming mode when the response is consumed with
-            # `iter_lines()`, even when the upstream client requested
-            # `stream=false` from 9Router.
             return cffi_requests.post(
                 self.responses_url,
-                headers=self._headers(token),
+                headers={
+                    **self._headers(token),
+                    'Accept': 'application/json',
+                },
                 json=payload,
                 impersonate='chrome120',
                 timeout=self.timeout,
-                stream=True,
+                stream=False,
             )
 
-        response = None
         try:
             response = await asyncio.to_thread(call)
+        except ProviderError:
+            raise
         except Exception as exc:
-            raise ProviderError(self.name, str(exc), 502, True) from exc
+            raise ProviderError(self.name, f'ChatGPT request failed: {exc}', 502, True) from exc
 
         try:
             if response.status_code >= 400:
-                text = response.text[:500]
+                text = (response.text or '')[:500]
                 retryable = response.status_code in (408, 409, 425, 429) or response.status_code >= 500
                 raise ProviderError(
                     self.name,
@@ -518,44 +534,22 @@ class ChatGPTProvider(BaseProvider):
                     retryable,
                 )
 
-            final_text = ''
-            raw_lines = []
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                if isinstance(line, bytes):
-                    line = line.decode('utf-8', 'ignore')
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith('data:'):
-                    data = line[5:].strip()
-                else:
-                    # Some upstream/proxy responses may return a plain JSON
-                    # object instead of SSE framing.
-                    data = line
-                if data == '[DONE]':
-                    continue
-                raw_lines.append(data)
-                try:
-                    obj = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(obj, dict):
-                    final_text += self._extract_text(obj)
-                    # Accept a conventional OpenAI-compatible response too.
-                    if not final_text:
-                        choices = obj.get('choices') or []
-                        if choices:
-                            message = choices[0].get('message') or {}
-                            content = message.get('content')
-                            if isinstance(content, str):
-                                final_text += content
+            try:
+                obj = response.json()
+            except Exception as exc:
+                text = (response.text or '')[:500]
+                raise ProviderError(
+                    self.name,
+                    f'ChatGPT Responses returned invalid JSON: {exc}; body={text}',
+                    502,
+                    True,
+                ) from exc
 
+            final_text = self._extract_response_text(obj)
             if not final_text:
                 raise ProviderError(
                     self.name,
-                    'ChatGPT Responses returned no assistant text',
+                    f'ChatGPT Responses returned no assistant text; response_type={obj.get("type") if isinstance(obj, dict) else type(obj).__name__}',
                     502,
                     True,
                 )
@@ -565,7 +559,11 @@ class ChatGPTProvider(BaseProvider):
                 'object': 'chat.completion',
                 'created': int(time.time()),
                 'model': req.model,
-                'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': final_text}, 'finish_reason': 'stop'}],
+                'choices': [{
+                    'index': 0,
+                    'message': {'role': 'assistant', 'content': final_text},
+                    'finish_reason': 'stop',
+                }],
             }
             return ProviderResult(
                 self.name,
@@ -573,13 +571,58 @@ class ChatGPTProvider(BaseProvider):
                 provider_model,
                 int((time.perf_counter() - started) * 1000),
             )
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(self.name, f'ChatGPT response parsing failed: {exc}', 502, True) from exc
         finally:
-            if response is not None:
-                try:
-                    response.close()
-                except Exception:
-                    pass
+            try:
+                response.close()
+            except Exception:
+                pass
 
+    @staticmethod
+    def _extract_response_text(obj: Any) -> str:
+        """Extract assistant text from Responses API JSON, tolerating variants."""
+        if not isinstance(obj, dict):
+            return ''
+
+        # Common Responses API convenience field.
+        output_text = obj.get('output_text')
+        if isinstance(output_text, str) and output_text:
+            return output_text
+
+        parts = []
+        output = obj.get('output') or []
+        if isinstance(output, list):
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                content = item.get('content') or []
+                if isinstance(content, str):
+                    parts.append(content)
+                    continue
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    text = block.get('text')
+                    if isinstance(text, str):
+                        parts.append(text)
+                    elif isinstance(block.get('value'), str):
+                        parts.append(block['value'])
+
+        # OpenAI-compatible fallback.
+        if not parts:
+            choices = obj.get('choices') or []
+            if choices and isinstance(choices[0], dict):
+                message = choices[0].get('message') or {}
+                content = message.get('content')
+                if isinstance(content, str):
+                    return content
+
+        return ''.join(parts).strip()
     async def stream(self, req: ChatCompletionRequest, provider_model: str) -> AsyncIterator[Dict[str, Any]]:
         token = await self.access_token()
         self.account_id = self.account_id or self._extract_account_id(token, self.id_token) or ''
