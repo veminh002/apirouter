@@ -99,6 +99,25 @@ class ChatGPTProvider(BaseProvider):
             self.log.warning('Could not load ChatGPT token state: %s', exc)
         return {}
 
+    def _restore_token_state_if_needed(self) -> bool:
+        """Reload persisted OAuth state when this process has no in-memory credential."""
+        if self.cached_access_token or self.refresh_token or not self.token_state_file:
+            return bool(self.cached_access_token or self.refresh_token)
+        state = self._load_token_state()
+        if not state:
+            return False
+        self.refresh_token = str(state.get('refresh_token') or '')
+        self.id_token = str(state.get('id_token') or self.id_token)
+        self.account_id = str(state.get('account_id') or self.account_id)
+        self.cached_access_token = str(state.get('access_token') or '') or None
+        try:
+            self.expires_at = float(state.get('expires_at') or 0)
+        except (TypeError, ValueError):
+            self.expires_at = 0.0
+        if self.cached_access_token and not self.account_id:
+            self.account_id = self._extract_account_id(self.cached_access_token, self.id_token) or ''
+        return bool(self.cached_access_token or self.refresh_token)
+
     def _persist_token_state(self) -> None:
         if not self.token_state_file:
             return
@@ -316,6 +335,10 @@ class ChatGPTProvider(BaseProvider):
 
     async def access_token(self) -> str:
         async with self.lock:
+            # OAuth callback and API requests can be handled by different
+            # workers/instances. Reload the persisted credential before
+            # deciding that authentication is missing.
+            self._restore_token_state_if_needed()
             now = time.time()
 
             # A Web session access token can be JWT-valid and unexpired while
