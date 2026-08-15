@@ -34,27 +34,22 @@ registry = ProviderRegistry()
 chatgpt_provider = None
 if 'chatgpt' in settings.configured_providers:
     chatgpt_provider = ChatGPTProvider(
-        settings.chatgpt_refresh_token,
-        settings.provider_timeout,
-        settings.chatgpt_token_state_file,
-        settings.chatgpt_keepalive_hours,
-        settings.chatgpt_web_search_mode,
-        settings.chatgpt_web_search_instruction,
-        settings.chatgpt_access_token,
-        settings.chatgpt_access_token_expires_in,
-        settings.chatgpt_client_id,
-        settings.chatgpt_redirect_uri,
-        settings.chatgpt_auth_url,
-        settings.chatgpt_account_id,
-        settings.chatgpt_responses_url,
-        {
-            'gpt-4o': settings.chatgpt_model_gpt_4o,
-            'gpt-4o-mini': settings.chatgpt_model_gpt_4o_mini,
-            'gpt-4-turbo': settings.chatgpt_model_gpt_4_turbo,
-            'gpt-3.5-turbo': settings.chatgpt_model_gpt_3_5_turbo,
-        },
-        settings.chatgpt_originator,
-        settings.chatgpt_version,
+        refresh_token=settings.chatgpt_refresh_token,
+        timeout=settings.provider_timeout,
+        token_state_file=settings.chatgpt_token_state_file,
+        keepalive_hours=settings.chatgpt_keepalive_hours,
+        web_search_mode=settings.chatgpt_web_search_mode,
+        web_search_instruction=settings.chatgpt_web_search_instruction,
+        access_token=settings.chatgpt_access_token,
+        id_token=settings.chatgpt_id_token,
+        account_id=settings.chatgpt_account_id,
+        access_token_expires_in=settings.chatgpt_access_token_expires_in,
+        client_id=settings.chatgpt_client_id,
+        redirect_uri=settings.chatgpt_redirect_uri,
+        auth_url=settings.chatgpt_auth_url,
+        responses_url=settings.chatgpt_responses_url,
+        originator=settings.chatgpt_originator,
+        version=settings.chatgpt_version,
     )
     registry.register(chatgpt_provider)
 if 'groq' in settings.configured_providers:

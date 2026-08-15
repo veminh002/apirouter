@@ -1,6 +1,6 @@
 from functools import lru_cache
 from typing import List
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,29 +8,27 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', extra='ignore', case_sensitive=False)
 
     router9_api_key: str = ''
+
     chatgpt_refresh_token: str = ''
     chatgpt_access_token: str = ''
-    chatgpt_access_token_expires_in: int = 0
-    chatgpt_client_id: str = ''
-    chatgpt_redirect_uri: str = ''
-    chatgpt_auth_url: str = 'https://auth.openai.com/oauth/token'
+    chatgpt_id_token: str = ''
     chatgpt_account_id: str = ''
+    chatgpt_access_token_expires_in: int = 0
+    chatgpt_client_id: str = 'app_EMoamEEZ73f0CkXaXp7hrann'
+    chatgpt_redirect_uri: str = 'http://localhost:1455/auth/callback'
+    chatgpt_auth_url: str = 'https://auth.openai.com/oauth/token'
     chatgpt_responses_url: str = 'https://chatgpt.com/backend-api/codex/responses'
     chatgpt_originator: str = 'codex_cli_rs'
-    chatgpt_version: str = '0.142.3'
-    chatgpt_model_gpt_4o: str = 'gpt-5.4'
-    chatgpt_model_gpt_4o_mini: str = 'gpt-5.4-mini'
-    chatgpt_model_gpt_4_turbo: str = 'gpt-5.4'
-    chatgpt_model_gpt_3_5_turbo: str = 'gpt-5.4-mini'
+    chatgpt_version: str = '0.144.1'
     chatgpt_token_state_file: str = ''
     chatgpt_keepalive_hours: float = 6.0
     chatgpt_web_search_mode: str = 'auto'
     chatgpt_web_search_instruction: str = (
         'When this request depends on information that may have changed recently, '
-        'use ChatGPT Web native search/browsing when available in this conversation. '
-        'Prefer current web-verified information over memory, and include source links or citations when the platform provides them. '
-        'Never invent a search result or citation.'
+        'use current information available to the ChatGPT Web backend. '
+        'Prefer current information over memory and never invent sources.'
     )
+
     groq_api_key: str = ''
     openrouter_api_key: str = ''
 
@@ -50,13 +48,10 @@ class Settings(BaseSettings):
     openrouter_referer: str = 'https://github.com/9router/9router'
     openrouter_title: str = '9Router v3'
 
-    # Comma-separated provider:model candidates, highest priority first.
-    # Example: "openai:gpt-4o,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o-mini"
-    # Kept as env-friendly strings so the routing table can evolve without code edits.
-    alias_gpt_4o: str = 'chatgpt:gpt-4o,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
-    alias_gpt_4o_mini: str = 'chatgpt:gpt-4o-mini,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
-    alias_gpt_4_turbo: str = 'chatgpt:gpt-4-turbo,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
-    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-3.5-turbo,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
+    alias_gpt_4o: str = 'chatgpt:gpt-5.4,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
+    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.4-mini,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
+    alias_gpt_4_turbo: str = 'chatgpt:gpt-5.4,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
+    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.4-mini,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
 
     @field_validator('enable_chatgpt', 'enable_groq', 'enable_openrouter', mode='before')
     @classmethod
