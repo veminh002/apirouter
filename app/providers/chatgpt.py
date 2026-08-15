@@ -526,10 +526,10 @@ class ChatGPTProvider(BaseProvider):
             'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': prompt}]}],
         }
         # Codex's ChatGPT Responses endpoint is stricter than the public
-        # Chat Completions schema. Keep the upstream payload deliberately
-        # minimal; do not forward sampling/token-limit parameters.
-        if should_hint_search:
-            payload['metadata'] = {'9router_web_search_hint': True, 'mode': mode}
+        # Chat Completions schema: it rejects unknown top-level parameters
+        # (including "metadata", unlike the official Responses API), so keep
+        # the upstream payload minimal. The web-search hint is already
+        # embedded directly into the prompt text above.
         return payload
 
     def _headers(self, token: str) -> Dict[str, str]:
