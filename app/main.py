@@ -6,7 +6,7 @@ import uuid
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
 from .auth import validate_auth
 from .circuit_breaker import CircuitBreaker
@@ -14,6 +14,7 @@ from .config import get_settings
 from .metrics import Metrics
 from .models import ChatCompletionRequest
 from .provider_registry import ProviderRegistry
+from .providers.base import ProviderError
 from .providers.chatgpt import ChatGPTProvider
 from .providers.groq import GroqProvider
 from .providers.openrouter import OpenRouterProvider
@@ -32,24 +33,25 @@ breaker = CircuitBreaker(settings.circuit_failure_threshold, settings.circuit_re
 
 registry = ProviderRegistry()
 chatgpt_provider = None
-if 'chatgpt' in settings.configured_providers:
+if settings.enable_chatgpt:
     chatgpt_provider = ChatGPTProvider(
-        refresh_token=settings.chatgpt_refresh_token,
-        timeout=settings.provider_timeout,
-        token_state_file=settings.chatgpt_token_state_file,
-        keepalive_hours=settings.chatgpt_keepalive_hours,
-        web_search_mode=settings.chatgpt_web_search_mode,
-        web_search_instruction=settings.chatgpt_web_search_instruction,
-        access_token=settings.chatgpt_access_token,
-        id_token=settings.chatgpt_id_token,
-        account_id=settings.chatgpt_account_id,
-        access_token_expires_in=settings.chatgpt_access_token_expires_in,
-        client_id=settings.chatgpt_client_id,
-        redirect_uri=settings.chatgpt_redirect_uri,
-        auth_url=settings.chatgpt_auth_url,
-        responses_url=settings.chatgpt_responses_url,
-        originator=settings.chatgpt_originator,
-        version=settings.chatgpt_version,
+        settings.chatgpt_refresh_token,
+        settings.provider_timeout,
+        settings.chatgpt_token_state_file,
+        settings.chatgpt_keepalive_hours,
+        settings.chatgpt_web_search_mode,
+        settings.chatgpt_web_search_instruction,
+        settings.chatgpt_access_token,
+        settings.chatgpt_access_token_expires_in,
+        settings.chatgpt_client_id,
+        settings.chatgpt_redirect_uri,
+        settings.chatgpt_auth_url,
+        settings.chatgpt_account_id,
+        settings.chatgpt_id_token,
+        settings.chatgpt_responses_url,
+        settings.chatgpt_originator,
+        settings.chatgpt_version,
+        settings.chatgpt_oauth_scope,
     )
     registry.register(chatgpt_provider)
 if 'groq' in settings.configured_providers:
@@ -86,6 +88,57 @@ async def startup_event():
 async def shutdown_event():
     if chatgpt_provider is not None:
         await chatgpt_provider.stop_keepalive()
+
+
+@app.get('/auth/chatgpt', response_class=HTMLResponse)
+async def chatgpt_auth_start():
+    if chatgpt_provider is None:
+        return HTMLResponse('<h2>ChatGPT authentication is disabled.</h2>', status_code=503)
+    authorize_url = chatgpt_provider.create_oauth_login()
+    escaped = authorize_url.replace('&', '&amp;').replace('"', '&quot;')
+    return HTMLResponse(f"""
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>9Router ChatGPT Login</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.5}}a,button{{font-size:16px}}textarea{{width:100%;min-height:120px;box-sizing:border-box}}.box{{padding:16px;border:1px solid #ddd;border-radius:12px;margin:16px 0}}</style>
+</head><body>
+<h1>Connect ChatGPT</h1>
+<div class="box"><p><b>1.</b> Tap <b>Sign in with ChatGPT</b>.</p>
+<p><a href="{escaped}" target="_blank">Sign in with ChatGPT</a></p></div>
+<div class="box"><p><b>2.</b> After login, the browser will redirect to <code>http://localhost:1455/auth/callback</code>. On a phone that page may not open. That is expected.</p>
+<p><b>3.</b> Copy the complete URL from the browser address bar.</p></div>
+<div class="box"><p><b>4.</b> Paste the callback URL below.</p>
+<form method="post" action="/auth/chatgpt/callback"><textarea name="callback_url" required placeholder="http://localhost:1455/auth/callback?code=...&state=..."></textarea><br><br><button type="submit">Complete connection</button></form></div>
+<p>Never paste access tokens, cookies, or session tokens here.</p>
+</body></html>""")
+
+
+@app.get('/auth/chatgpt/callback', response_class=HTMLResponse)
+async def chatgpt_auth_callback(callback_url: str):
+    if chatgpt_provider is None:
+        return HTMLResponse('<h2>ChatGPT authentication is disabled.</h2>', status_code=503)
+    try:
+        result = await chatgpt_provider.complete_oauth_callback(callback_url)
+    except ProviderError as exc:
+        logger.warning('ChatGPT OAuth callback failed: %s', exc)
+        return HTMLResponse(f'<h2>ChatGPT login failed</h2><pre>{str(exc).replace("<", "&lt;")}</pre><p><a href="/auth/chatgpt">Try again</a></p>', status_code=exc.status_code or 400)
+    diagnostic = json.dumps(result.get('diagnostic', {}), indent=2)
+    return HTMLResponse(f'<h2>ChatGPT connected</h2><p>Account ID detected: <b>{result.get("account_id") or "yes"}</b></p><p>You can now use <code>/v1/chat/completions</code>.</p><pre>{diagnostic}</pre>')
+
+
+@app.get('/auth/chatgpt/status')
+async def chatgpt_auth_status():
+    if chatgpt_provider is None:
+        return {'enabled': False}
+    token = chatgpt_provider.cached_access_token
+    if not token:
+        return {'enabled': True, 'authenticated': False, 'message': 'Open /auth/chatgpt to sign in.'}
+    diagnostic = chatgpt_provider.token_diagnostic(token, chatgpt_provider.account_id)
+    return {
+        'enabled': True,
+        'authenticated': bool(chatgpt_provider.account_id and not diagnostic['token_expired'] and not diagnostic['missing_scopes']),
+        'account_id_present': bool(chatgpt_provider.account_id),
+        'diagnostic': diagnostic,
+    }
 
 
 @app.get('/health')
