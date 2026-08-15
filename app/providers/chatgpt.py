@@ -28,14 +28,14 @@ class ChatGPTProvider(BaseProvider):
     CLIENT_ID = 'pdlLIX2Y72MIlIKCdACjhgptvBDjhSp8'
     REDIRECT_URI = 'com.openai.chat://auth0.openai.com/ios/com.openai.chat/callback'
 
-    def __init__(self, refresh_token: str, timeout: float, token_state_file: str = '', keepalive_hours: float = 6.0, web_search_mode: str = 'auto', web_search_instruction: str = ''):
+    def __init__(self, refresh_token: str, access_token: str = '', access_token_expires_in: int = 0, timeout: float = 30.0, token_state_file: str = '', keepalive_hours: float = 6.0, web_search_mode: str = 'auto', web_search_instruction: str = ''):
         self.timeout = timeout
         self.token_state_file = token_state_file.strip()
         self.keepalive_hours = max(0.25, float(keepalive_hours))
         self.web_search_mode = (web_search_mode or 'auto').strip().lower()
         self.web_search_instruction = (web_search_instruction or '').strip()
-        self.cached_access_token = None
-        self.expires_at = 0.0
+        self.cached_access_token = access_token.strip() or None
+        self.expires_at = time.time() + max(0, int(access_token_expires_in)) if self.cached_access_token and access_token_expires_in else 0.0
         self.lock = asyncio.Lock()
         self.keepalive_task = None
         self.log = logging.getLogger('9router.chatgpt')
@@ -121,12 +121,14 @@ class ChatGPTProvider(BaseProvider):
         return cffi_requests
 
     async def access_token(self) -> str:
+        if self.cached_access_token and (self.expires_at == 0.0 or time.time() < self.expires_at - 60):
+            return self.cached_access_token
         if not self.refresh_token:
-            raise ProviderError(self.name, 'CHATGPT_REFRESH_TOKEN is not configured', 503, False)
+            raise ProviderError(self.name, 'ChatGPT authentication is not configured: set CHATGPT_REFRESH_TOKEN or CHATGPT_ACCESS_TOKEN', 503, False)
 
         async with self.lock:
             now = time.time()
-            if self.cached_access_token and now < self.expires_at - 300:
+            if self.cached_access_token and (self.expires_at == 0.0 or now < self.expires_at - 60):
                 return self.cached_access_token
 
             cffi_requests = self._requests()
@@ -140,11 +142,12 @@ class ChatGPTProvider(BaseProvider):
             def refresh():
                 return cffi_requests.post(
                     self.AUTH_URL,
-                    json=payload,
                     headers={
-                        'Content-Type': 'application/json',
-                        'User-Agent': 'Mozilla/5.0',
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     },
+                    data=payload,
                     impersonate='chrome120',
                     timeout=15,
                 )
@@ -155,6 +158,12 @@ class ChatGPTProvider(BaseProvider):
                 raise ProviderError(self.name, f'token refresh failed: {exc}', retryable=True) from exc
 
             if response.status_code != 200:
+                if response.status_code in (400, 401, 403):
+                    detail = 'authentication rejected'
+                    body = response.text[:300].replace('\n', ' ')
+                    if 'Just a moment' in response.text or 'cf-chl-' in response.text:
+                        detail = 'authentication endpoint returned a Cloudflare challenge; verify the OAuth flow/credential from a supported client rather than retrying'
+                    raise ProviderError(self.name, f'token refresh HTTP {response.status_code}: {detail}: {body}', response.status_code, False)
                 retryable = response.status_code == 429 or response.status_code >= 500
                 raise ProviderError(
                     self.name,
@@ -258,9 +267,11 @@ class ChatGPTProvider(BaseProvider):
 
         if response.status_code >= 400:
             retryable = response.status_code in (408, 409, 425, 429) or response.status_code >= 500
+            if response.status_code in (401, 403):
+                retryable = False
             raise ProviderError(
                 self.name,
-                f'ChatGPT HTTP {response.status_code}: {response.text[:300]}',
+                f'ChatGPT HTTP {response.status_code}: {response.text[:300].replace(chr(10), " ")}',
                 response.status_code,
                 retryable,
             )
@@ -316,16 +327,17 @@ class ChatGPTProvider(BaseProvider):
                 response = cffi_requests.post(
                     self.CONVERSATION_URL,
                     headers=self._headers(token),
-                    json=payload,
                     impersonate='chrome120',
                     timeout=self.timeout,
                     stream=True,
                 )
                 if response.status_code >= 400:
                     retryable = response.status_code in (408, 409, 425, 429) or response.status_code >= 500
+                    if response.status_code in (401, 403):
+                        retryable = False
                     err = ProviderError(
                         self.name,
-                        f'ChatGPT HTTP {response.status_code}: {response.text[:300]}',
+                        f'ChatGPT HTTP {response.status_code}: {response.text[:300].replace(chr(10), " ")}',
                         response.status_code,
                         retryable,
                     )
