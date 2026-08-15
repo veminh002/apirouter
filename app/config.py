@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     chatgpt_version: str = '0.144.1'
     chatgpt_oauth_scope: str = 'openid profile email offline_access api.connectors.read api.connectors.invoke'
     chatgpt_token_state_file: str = ''
+    database_url: str = ''
+    chatgpt_token_encryption_key: str = ''
     chatgpt_keepalive_hours: float = 6.0
     chatgpt_web_search_mode: str = 'auto'
     chatgpt_web_search_instruction: str = (

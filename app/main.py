@@ -39,6 +39,8 @@ if settings.enable_chatgpt:
         settings.chatgpt_refresh_token,
         settings.provider_timeout,
         settings.chatgpt_token_state_file,
+        settings.database_url,
+        settings.chatgpt_token_encryption_key,
         settings.chatgpt_keepalive_hours,
         settings.chatgpt_web_search_mode,
         settings.chatgpt_web_search_instruction,
