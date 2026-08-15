@@ -5,118 +5,81 @@ services:
     plan: free
     region: singapore
     healthCheckPath: /health
-
     envVars:
-      # Runtime
       - key: PORT
         value: "10000"
-
-      # Router authentication
       - key: ROUTER9_API_KEY
         generateValue: true
 
-      # ChatGPT Web / Codex authentication
-      # Enter these manually in Render Dashboard.
+      # ChatGPT OAuth: /auth/chatgpt starts the browser login.
       - key: CHATGPT_ACCESS_TOKEN
         sync: false
-
       - key: CHATGPT_REFRESH_TOKEN
         sync: false
-
       - key: CHATGPT_ID_TOKEN
         sync: false
-
       - key: CHATGPT_ACCOUNT_ID
         sync: false
-
-      # OAuth configuration
       - key: CHATGPT_CLIENT_ID
         value: "app_EMoamEEZ73f0CkXaXp7hrann"
-
       - key: CHATGPT_REDIRECT_URI
         value: "http://localhost:1455/auth/callback"
-
       - key: CHATGPT_AUTH_URL
         value: "https://auth.openai.com/oauth/token"
-
-      # ChatGPT Codex Responses endpoint
+      - key: CHATGPT_OAUTH_SCOPE
+        value: "openid profile email offline_access api.connectors.read api.connectors.invoke"
       - key: CHATGPT_RESPONSES_URL
         value: "https://chatgpt.com/backend-api/codex/responses"
-
       - key: CHATGPT_ORIGINATOR
         value: "codex_cli_rs"
-
       - key: CHATGPT_VERSION
         value: "0.144.1"
-
-      # Token/session handling
       - key: CHATGPT_ACCESS_TOKEN_EXPIRES_IN
         value: "0"
-
       - key: CHATGPT_TOKEN_STATE_FILE
         value: "/var/data/apirouter-chatgpt-token.json"
-
       - key: CHATGPT_KEEPALIVE_HOURS
         value: "6"
-
       - key: CHATGPT_WEB_SEARCH_MODE
         value: "auto"
 
-      # Providers
+      # Fallback providers intentionally disabled during ChatGPT-only testing.
       - key: ENABLE_CHATGPT
         value: "true"
-
       - key: ENABLE_GROQ
         value: "false"
-
       - key: ENABLE_OPENROUTER
         value: "false"
-
       - key: GROQ_API_KEY
         sync: false
-
       - key: OPENROUTER_API_KEY
         sync: false
 
-      # Request limits
       - key: REQUEST_TIMEOUT
         value: "45"
-
       - key: PROVIDER_TIMEOUT
         value: "30"
-
       - key: MAX_RETRIES
         value: "1"
-
       - key: RATE_LIMIT_PER_MINUTE
         value: "60"
-
       - key: MAX_CONCURRENT_REQUESTS
         value: "8"
-
-      # Circuit breaker
       - key: CIRCUIT_FAILURE_THRESHOLD
         value: "5"
-
       - key: CIRCUIT_RECOVERY_SECONDS
         value: "30"
 
-      # OpenRouter metadata
-      - key: OPENROUTER_REFERER
-        value: "https://github.com/9router/9router"
-
-      - key: OPENROUTER_TITLE
-        value: "9Router v3"
-
-      # Logical model aliases
       - key: ALIAS_GPT_4O
         value: "chatgpt:gpt-5.4,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o"
-
       - key: ALIAS_GPT_4O_MINI
         value: "chatgpt:gpt-5.4-mini,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite"
-
       - key: ALIAS_GPT_4_TURBO
         value: "chatgpt:gpt-5.4,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o"
-
       - key: ALIAS_GPT_3_5_TURBO
         value: "chatgpt:gpt-5.4-mini,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite"
+
+      - key: OPENROUTER_REFERER
+        value: "https://github.com/9router/9router"
+      - key: OPENROUTER_TITLE
+        value: "9Router v3"
