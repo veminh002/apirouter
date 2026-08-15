@@ -494,32 +494,26 @@ class ChatGPTProvider(BaseProvider):
                 False,
             )
 
+        # The Codex Responses endpoint currently requires stream=true even when
+        # the OpenAI-compatible client requested stream=false. We therefore
+        # consume the upstream SSE stream here and aggregate the text into one
+        # normal Chat Completions response.
         payload = self._payload(req, provider_model)
-        # /v1/chat/completions with stream=false must use the non-streaming
-        # Responses representation. The previous implementation requested an
-        # SSE stream and then consumed it synchronously, which could raise
-        # curl_cffi's "stream mode is not enabled" assertion or leak an
-        # unhandled provider exception as HTTP 500.
-        payload['stream'] = False
+        payload['stream'] = True
         cffi_requests = self._requests()
 
         def call():
             return cffi_requests.post(
                 self.responses_url,
-                headers={
-                    **self._headers(token),
-                    'Accept': 'application/json',
-                },
+                headers=self._headers(token),
                 json=payload,
                 impersonate='chrome120',
                 timeout=self.timeout,
-                stream=False,
+                stream=True,
             )
 
         try:
             response = await asyncio.to_thread(call)
-        except ProviderError:
-            raise
         except Exception as exc:
             raise ProviderError(self.name, f'ChatGPT request failed: {exc}', 502, True) from exc
 
@@ -534,22 +528,42 @@ class ChatGPTProvider(BaseProvider):
                     retryable,
                 )
 
-            try:
-                obj = response.json()
-            except Exception as exc:
-                text = (response.text or '')[:500]
-                raise ProviderError(
-                    self.name,
-                    f'ChatGPT Responses returned invalid JSON: {exc}; body={text}',
-                    502,
-                    True,
-                ) from exc
+            parts = []
+            terminal_error = None
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                if isinstance(line, bytes):
+                    line = line.decode('utf-8', 'ignore')
+                line = line.strip()
+                if not line.startswith('data:'):
+                    continue
+                data = line[5:].strip()
+                if not data or data == '[DONE]':
+                    continue
+                try:
+                    event = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
 
-            final_text = self._extract_response_text(obj)
+                event_type = event.get('type') if isinstance(event, dict) else None
+                if event_type in ('response.error', 'response.failed'):
+                    detail = event.get('error') or event.get('response') or event
+                    terminal_error = str(detail)[:500]
+                    break
+
+                text = self._extract_text(event)
+                if text:
+                    parts.append(text)
+
+            if terminal_error:
+                raise ProviderError(self.name, f'ChatGPT Responses stream failed: {terminal_error}', 502, True)
+
+            final_text = ''.join(parts).strip()
             if not final_text:
                 raise ProviderError(
                     self.name,
-                    f'ChatGPT Responses returned no assistant text; response_type={obj.get("type") if isinstance(obj, dict) else type(obj).__name__}',
+                    'ChatGPT Responses stream completed without assistant text',
                     502,
                     True,
                 )
@@ -574,7 +588,7 @@ class ChatGPTProvider(BaseProvider):
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(self.name, f'ChatGPT response parsing failed: {exc}', 502, True) from exc
+            raise ProviderError(self.name, f'ChatGPT response stream parsing failed: {exc}', 502, True) from exc
         finally:
             try:
                 response.close()
