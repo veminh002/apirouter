@@ -9,6 +9,8 @@ class Settings(BaseSettings):
 
     router9_api_key: str = ''
     chatgpt_refresh_token: str = ''
+    chatgpt_access_token: str = ''
+    chatgpt_access_token_expires_in: int = 0
     chatgpt_token_state_file: str = ''
     chatgpt_keepalive_hours: float = 6.0
     chatgpt_web_search_mode: str = 'auto'
@@ -48,7 +50,7 @@ class Settings(BaseSettings):
     @property
     def configured_providers(self) -> List[str]:
         providers = []
-        if self.enable_chatgpt and self.chatgpt_refresh_token:
+        if self.enable_chatgpt and (self.chatgpt_refresh_token or self.chatgpt_access_token):
             providers.append('chatgpt')
         if self.enable_groq and self.groq_api_key:
             providers.append('groq')

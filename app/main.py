@@ -35,6 +35,8 @@ chatgpt_provider = None
 if 'chatgpt' in settings.configured_providers:
     chatgpt_provider = ChatGPTProvider(
         settings.chatgpt_refresh_token,
+        settings.chatgpt_access_token,
+        settings.chatgpt_access_token_expires_in,
         settings.provider_timeout,
         settings.chatgpt_token_state_file,
         settings.chatgpt_keepalive_hours,
@@ -122,7 +124,7 @@ async def models(authorization: Optional[str] = Header(None)):
 async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header(None)):
     await auth_and_limit(authorization)
     if not registry.all():
-        raise HTTPException(503, 'No provider is configured. Set CHATGPT_REFRESH_TOKEN and/or fallback provider API keys.')
+        raise HTTPException(503, 'No provider is configured. Set CHATGPT_REFRESH_TOKEN or CHATGPT_ACCESS_TOKEN and/or fallback provider API keys.')
 
     if not req.stream:
         async with semaphore:
