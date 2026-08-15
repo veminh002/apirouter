@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 import uuid
 from typing import Optional
@@ -19,6 +20,8 @@ from .providers.openrouter import OpenRouterProvider
 from .rate_limit import RateLimiter
 from .router import ProviderRouter
 from .routing import ModelAlias, RoutingPolicy
+
+logger = logging.getLogger('9router')
 
 settings = get_settings()
 app = FastAPI(title='9Router', version='3.2.0')
@@ -125,6 +128,7 @@ async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header
         async with semaphore:
             result, errors = await router.complete(req)
         if not result:
+            logger.error('All providers failed for model=%s: %s', req.model, errors)
             await metrics.request('502')
             return JSONResponse(status_code=502, content={'error': {'message': 'All providers failed', 'type': 'router_error', 'code': 'provider_unavailable', 'details': errors}})
         await metrics.request('200')
@@ -160,6 +164,7 @@ async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header
             await metrics.request('200')
         except Exception as exc:
             # The headers have already been sent. The client receives an SSE error event.
+            logger.error('Stream failed for model=%s: %s', req.model, exc)
             error = {'error': {'message': str(exc), 'type': 'router_error', 'code': 'stream_error'}}
             yield sse(error)
             yield 'data: [DONE]\n\n'
