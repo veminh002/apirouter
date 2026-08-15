@@ -213,8 +213,16 @@ async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header
         raise HTTPException(503, 'No provider is configured. Set CHATGPT_REFRESH_TOKEN and/or fallback provider API keys.')
 
     if not req.stream:
-        async with semaphore:
-            result, errors = await router.complete(req)
+        try:
+            async with semaphore:
+                result, errors = await router.complete(req)
+        except Exception as exc:
+            logger.exception('Unhandled /v1/chat/completions failure for model=%s', req.model)
+            await metrics.request('500')
+            return JSONResponse(
+                status_code=500,
+                content={'error': {'message': 'Internal router error', 'type': 'internal_error', 'code': 'router_exception'}}
+            )
         if not result:
             logger.error('All providers failed for model=%s: %s', req.model, errors)
             await metrics.request('502')
