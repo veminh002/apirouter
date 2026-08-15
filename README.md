@@ -82,3 +82,16 @@ trong request gửi tới ChatGPT Web, yêu cầu assistant gốc của ChatGPT 
 Đây chủ động là một cầu nối "best-effort" tới backend riêng tư của ChatGPT Web. Nó **không** đảm bảo
 mọi request đều kích hoạt được tìm kiếm gốc, vì quyết định đó do chính ChatGPT Web kiểm soát.
 Không có bất kỳ phụ thuộc tìm kiếm trả phí hay bên ngoài nào được thêm vào.
+
+## ChatGPT Web / Codex authentication
+
+For ChatGPT subscription routing, use a current ChatGPT/Codex OAuth access token and the
+associated `account_id`. Do not use the encrypted `sessionToken` from
+`/api/auth/session`. v7 can extract `chatgpt_account_id` from the JWT automatically or
+accept it explicitly through `CHATGPT_ACCOUNT_ID`.
+
+The ChatGPT provider targets the ChatGPT/Codex Responses backend:
+`https://chatgpt.com/backend-api/codex/responses`.
+
+If the backend returns 401, v7 includes non-secret authentication diagnostics in the
+provider error. Secret token values are never logged.
