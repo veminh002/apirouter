@@ -38,6 +38,11 @@ services:
         value: "0"
       - key: CHATGPT_TOKEN_STATE_FILE
         value: "/var/data/apirouter-chatgpt-token.json"
+      # Free plan: persist encrypted ChatGPT OAuth credentials in Render Postgres.
+      - key: DATABASE_URL
+        sync: false
+      - key: CHATGPT_TOKEN_ENCRYPTION_KEY
+        sync: false
       - key: CHATGPT_KEEPALIVE_HOURS
         value: "6"
       - key: CHATGPT_WEB_SEARCH_MODE
