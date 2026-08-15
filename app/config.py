@@ -53,10 +53,10 @@ class Settings(BaseSettings):
     # Comma-separated provider:model candidates, highest priority first.
     # Example: "openai:gpt-4o,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o-mini"
     # Kept as env-friendly strings so the routing table can evolve without code edits.
-    alias_gpt_4o: str = 'chatgpt:gpt-5.4,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
-    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.4-mini,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
-    alias_gpt_4_turbo: str = 'chatgpt:gpt-5.4,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
-    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.4-mini,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
+    alias_gpt_4o: str = 'chatgpt:gpt-5.6-terra,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
+    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.6-luna,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
+    alias_gpt_4_turbo: str = 'chatgpt:gpt-5.6-terra,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
+    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
 
     @field_validator('enable_chatgpt', 'enable_groq', 'enable_openrouter', mode='before')
     @classmethod
