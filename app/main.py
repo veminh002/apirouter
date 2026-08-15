@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 from typing import Optional
+from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
@@ -112,17 +113,41 @@ async def chatgpt_auth_start():
 </body></html>""")
 
 
-@app.get('/auth/chatgpt/callback', response_class=HTMLResponse)
-async def chatgpt_auth_callback(callback_url: str):
+async def _finish_chatgpt_oauth(callback_url: str):
     if chatgpt_provider is None:
         return HTMLResponse('<h2>ChatGPT authentication is disabled.</h2>', status_code=503)
     try:
         result = await chatgpt_provider.complete_oauth_callback(callback_url)
     except ProviderError as exc:
         logger.warning('ChatGPT OAuth callback failed: %s', exc)
-        return HTMLResponse(f'<h2>ChatGPT login failed</h2><pre>{str(exc).replace("<", "&lt;")}</pre><p><a href="/auth/chatgpt">Try again</a></p>', status_code=exc.status_code or 400)
+        safe = str(exc).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return HTMLResponse(f'<h2>ChatGPT login failed</h2><pre>{safe}</pre><p><a href="/auth/chatgpt">Try again</a></p>', status_code=exc.status_code or 400)
     diagnostic = json.dumps(result.get('diagnostic', {}), indent=2)
     return HTMLResponse(f'<h2>ChatGPT connected</h2><p>Account ID detected: <b>{result.get("account_id") or "yes"}</b></p><p>You can now use <code>/v1/chat/completions</code>.</p><pre>{diagnostic}</pre>')
+
+
+@app.get('/auth/chatgpt/callback', response_class=HTMLResponse)
+async def chatgpt_auth_callback(callback_url: Optional[str] = None, request: Request = None):
+    # Supports a browser GET with the callback URL in the query string.
+    if callback_url:
+        return await _finish_chatgpt_oauth(callback_url)
+    if request is not None:
+        params = dict(parse_qsl(request.url.query, keep_blank_values=True))
+        if 'code' in params or 'error' in params:
+            return await _finish_chatgpt_oauth(str(request.url))
+    return HTMLResponse('<h2>Missing OAuth callback</h2><p>Return to <a href="/auth/chatgpt">ChatGPT login</a> and try again.</p>', status_code=400)
+
+
+@app.post('/auth/chatgpt/callback', response_class=HTMLResponse)
+async def chatgpt_auth_callback_post(request: Request):
+    # The login page submits application/x-www-form-urlencoded. Parse it without
+    # requiring python-multipart so the existing minimal image keeps working.
+    body = (await request.body()).decode('utf-8', errors='replace')
+    form = dict(parse_qsl(body, keep_blank_values=True))
+    callback_url = form.get('callback_url', '').strip()
+    if not callback_url:
+        return HTMLResponse('<h2>Missing callback URL</h2><p>Paste the complete localhost callback URL.</p>', status_code=400)
+    return await _finish_chatgpt_oauth(callback_url)
 
 
 @app.get('/auth/chatgpt/status')
