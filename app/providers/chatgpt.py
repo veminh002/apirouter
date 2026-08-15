@@ -465,42 +465,72 @@ class ChatGPTProvider(BaseProvider):
         cffi_requests = self._requests()
 
         def call():
-            return cffi_requests.post(self.responses_url, headers=self._headers(token), json=payload, impersonate='chrome120', timeout=self.timeout)
+            # The Codex Responses endpoint is an SSE endpoint and requires
+            # curl_cffi streaming mode when the response is consumed with
+            # `iter_lines()`, even when the upstream client requested
+            # `stream=false` from 9Router.
+            return cffi_requests.post(
+                self.responses_url,
+                headers=self._headers(token),
+                json=payload,
+                impersonate='chrome120',
+                timeout=self.timeout,
+                stream=True,
+            )
 
+        response = None
         try:
             response = await asyncio.to_thread(call)
         except Exception as exc:
             raise ProviderError(self.name, str(exc), 502, True) from exc
-        if response.status_code >= 400:
-            text = response.text[:500]
-            retryable = response.status_code in (408, 409, 425, 429) or response.status_code >= 500
-            raise ProviderError(self.name, f'ChatGPT Responses HTTP {response.status_code}: {text}', response.status_code, retryable)
 
-        final_text = ''
-        for line in response.iter_lines():
-            if not line:
-                continue
-            if isinstance(line, bytes):
-                line = line.decode('utf-8', 'ignore')
-            if not line.startswith('data:'):
-                continue
-            data = line[5:].strip()
-            if data == '[DONE]':
-                continue
-            try:
-                obj = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            final_text += self._extract_text(obj)
+        try:
+            if response.status_code >= 400:
+                text = response.text[:500]
+                retryable = response.status_code in (408, 409, 425, 429) or response.status_code >= 500
+                raise ProviderError(
+                    self.name,
+                    f'ChatGPT Responses HTTP {response.status_code}: {text}',
+                    response.status_code,
+                    retryable,
+                )
 
-        response_data = {
-            'id': f'chatcmpl-{uuid.uuid4().hex}',
-            'object': 'chat.completion',
-            'created': int(time.time()),
-            'model': req.model,
-            'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': final_text}, 'finish_reason': 'stop'}],
-        }
-        return ProviderResult(self.name, response_data, provider_model, int((time.perf_counter() - started) * 1000))
+            final_text = ''
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                if isinstance(line, bytes):
+                    line = line.decode('utf-8', 'ignore')
+                if not line.startswith('data:'):
+                    continue
+                data = line[5:].strip()
+                if data == '[DONE]':
+                    continue
+                try:
+                    obj = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                final_text += self._extract_text(obj)
+
+            response_data = {
+                'id': f'chatcmpl-{uuid.uuid4().hex}',
+                'object': 'chat.completion',
+                'created': int(time.time()),
+                'model': req.model,
+                'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': final_text}, 'finish_reason': 'stop'}],
+            }
+            return ProviderResult(
+                self.name,
+                response_data,
+                provider_model,
+                int((time.perf_counter() - started) * 1000),
+            )
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
 
     async def stream(self, req: ChatCompletionRequest, provider_model: str) -> AsyncIterator[Dict[str, Any]]:
         token = await self.access_token()
