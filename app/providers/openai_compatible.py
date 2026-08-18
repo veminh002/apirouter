@@ -46,6 +46,15 @@ class OpenAICompatibleProvider(BaseProvider):
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _describe_exception(e: Exception) -> str:
+        # Many httpx connection-level exceptions (ConnectTimeout, ConnectError,
+        # ReadTimeout, etc.) have an empty str() - so a bare `str(e)` silently
+        # produced error='' with no clue what actually failed (DNS, TLS,
+        # timeout, refused connection...). Always include the exception type.
+        text = str(e)
+        return f'{type(e).__name__}: {text}' if text else type(e).__name__
+
     async def chat(self, req, provider_model):
         started = time.perf_counter()
         try:
@@ -57,7 +66,7 @@ class OpenAICompatibleProvider(BaseProvider):
         except ProviderError:
             raise
         except httpx.HTTPError as e:
-            raise ProviderError(self.name, str(e), retryable=True)
+            raise ProviderError(self.name, self._describe_exception(e), retryable=True)
         except ValueError as e:
             raise ProviderError(self.name, f'Invalid JSON response: {e}', 502, True)
 
@@ -83,7 +92,7 @@ class OpenAICompatibleProvider(BaseProvider):
         except ProviderError:
             raise
         except httpx.HTTPError as e:
-            raise ProviderError(self.name, str(e), retryable=True)
+            raise ProviderError(self.name, self._describe_exception(e), retryable=True)
 
     async def health(self) -> ProviderHealth:
         started = time.perf_counter()
