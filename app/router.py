@@ -10,13 +10,32 @@ from .providers.base import ProviderError
 from .routing import RoutingPolicy
 
 
+class _NullAsyncContext:
+    """No-op async context manager, used when no semaphore is supplied
+    (e.g. in tests) so complete() doesn't need an `if self.semaphore` branch
+    at every call site."""
+
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
 class ProviderRouter:
-    def __init__(self, registry: ProviderRegistry, policy: RoutingPolicy, max_retries=1, breaker=None, metrics=None):
+    def __init__(self, registry: ProviderRegistry, policy: RoutingPolicy, max_retries=1, breaker=None, metrics=None, semaphore: Optional[asyncio.Semaphore] = None):
         self.registry = registry
         self.policy = policy
         self.max_retries = max(0, max_retries)
         self.breaker = breaker or CircuitBreaker()
         self.metrics = metrics or Metrics()
+        # Held only around the actual outbound HTTP call below, not around
+        # retry backoff sleeps. Previously the caller (main.py) wrapped the
+        # *entire* complete() call - including every `asyncio.sleep(delay)`
+        # between retries - in `async with semaphore`, so a slow/failing
+        # provider held a concurrency slot hostage during its own backoff,
+        # exactly when the server needs that slot free for other requests.
+        self.semaphore = semaphore or _NullAsyncContext()
 
     async def complete(self, req: ChatCompletionRequest):
         errors = []
@@ -34,7 +53,8 @@ class ProviderRouter:
                 started = time.perf_counter()
                 await self.metrics.provider_started(provider.name)
                 try:
-                    result = await provider.chat(req, provider_model)
+                    async with self.semaphore:
+                        result = await provider.chat(req, provider_model)
                     await self.metrics.provider_finished(provider.name, int((time.perf_counter()-started)*1000))
                     await self.breaker.success(provider.name)
                     if index > 0:
@@ -50,6 +70,17 @@ class ProviderRouter:
                         break
                     delay = e.retry_after if e.retry_after is not None else 0.35 * (attempt + 1)
                     await asyncio.sleep(min(30.0, max(0.05, delay)))
+                except Exception as e:
+                    # A bug or unhandled exception inside provider.chat() must still
+                    # release the breaker's half-open trial slot. Without this, a
+                    # non-ProviderError failure during a half-open trial leaves
+                    # half_open_in_flight=True forever, and breaker.allow() refuses
+                    # every future request for this provider until process restart.
+                    latency = int((time.perf_counter()-started)*1000)
+                    await self.metrics.provider_finished(provider.name, latency, error=True)
+                    await self.breaker.failure(provider.name)
+                    errors.append({'provider': provider.name, 'status_code': None, 'error': str(e), 'attempt': attempt + 1})
+                    break
         return None, errors
 
     async def stream(self, req: ChatCompletionRequest) -> AsyncIterator[Dict]:
@@ -85,6 +116,15 @@ class ProviderRouter:
                     await self.breaker.failure(provider.name)
                 errors.append({'provider': e.provider, 'status_code': e.status_code, 'error': str(e)})
                 # Once bytes/chunks reached the client, a transparent provider switch is unsafe.
+                if emitted:
+                    raise
+            except Exception as e:
+                # Same half-open deadlock risk as complete(): an unexpected exception
+                # must still release the breaker's trial slot, or this provider stays
+                # permanently blocked once it hits a half-open trial.
+                await self.metrics.provider_finished(provider.name, int((time.perf_counter()-started)*1000), error=True)
+                await self.breaker.failure(provider.name)
+                errors.append({'provider': provider.name, 'status_code': None, 'error': str(e)})
                 if emitted:
                     raise
         raise ProviderError('router', 'All streaming providers failed', 502, retryable=False)

@@ -37,3 +37,28 @@ def flatten_for_chatgpt(messages):
         text = extract_text(m.content)
         chunks.append(f'[{role}]\n{text}')
     return '\n\n'.join(chunks)
+
+def split_system_instructions(messages):
+    """Pull system-role messages out of the conversation.
+
+    The ChatGPT Responses API has a dedicated `instructions` field for
+    system-level guidance, distinct from the conversational `input`. Before
+    this, every message (including role=system) was flattened together into
+    one text blob under `input`, and `instructions` was a hardcoded generic
+    string - so a caller's actual system prompt was demoted to a "[SYSTEM]"
+    label buried in user-turn text instead of being treated as instructions.
+
+    Returns (instructions, remaining_messages): `instructions` joins every
+    system message's text in order (empty string if none); `remaining_messages`
+    is every other message, unchanged and in original order.
+    """
+    system_chunks = []
+    remaining = []
+    for m in messages:
+        if m.role == 'system':
+            text = extract_text(m.content)
+            if text:
+                system_chunks.append(text)
+        else:
+            remaining.append(m)
+    return '\n\n'.join(system_chunks), remaining

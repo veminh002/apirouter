@@ -19,6 +19,7 @@ from .providers.base import ProviderError
 from .providers.chatgpt import ChatGPTProvider
 from .providers.groq import GroqProvider
 from .providers.openrouter import OpenRouterProvider
+from .providers.tokenrouter import TokenRouterProvider
 from .rate_limit import RateLimiter
 from .router import ProviderRouter
 from .routing import ModelAlias, RoutingPolicy
@@ -57,6 +58,8 @@ if settings.enable_chatgpt:
         settings.chatgpt_oauth_scope,
     )
     registry.register(chatgpt_provider)
+if 'tokenrouter' in settings.configured_providers:
+    registry.register(TokenRouterProvider(settings.tokenrouter_api_key, settings.provider_timeout))
 if 'groq' in settings.configured_providers:
     registry.register(GroqProvider(settings.groq_api_key, settings.provider_timeout))
 if 'openrouter' in settings.configured_providers:
@@ -68,7 +71,7 @@ policy = RoutingPolicy({
     'gpt-4-turbo': ModelAlias('gpt-4-turbo', settings.parse_candidates(settings.alias_gpt_4_turbo)),
     'gpt-3.5-turbo': ModelAlias('gpt-3.5-turbo', settings.parse_candidates(settings.alias_gpt_3_5_turbo)),
 })
-router = ProviderRouter(registry, policy, settings.max_retries, breaker, metrics)
+router = ProviderRouter(registry, policy, settings.max_retries, breaker, metrics, semaphore=semaphore)
 
 
 async def auth_and_limit(authorization: Optional[str]):
@@ -226,8 +229,7 @@ async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header
 
     if not req.stream:
         try:
-            async with semaphore:
-                result, errors = await router.complete(req)
+            result, errors = await router.complete(req)
         except Exception as exc:
             logger.exception('Unhandled /v1/chat/completions failure for model=%s', req.model)
             await metrics.request('500')
