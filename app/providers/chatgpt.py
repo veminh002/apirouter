@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from .base import BaseProvider, ProviderError, ProviderHealth
 from ..models import ChatCompletionRequest, ProviderResult
-from ..normalizer import flatten_for_chatgpt
+from ..normalizer import flatten_for_chatgpt, split_system_instructions
 from ..realtime import detect_realtime
 
 
@@ -416,7 +416,8 @@ class ChatGPTProvider(BaseProvider):
         self.id_token = id_token or self.id_token
         self.account_id = account_id or ''
         self.expires_at = time.time() + max(60, int(data.get('expires_in', 3600)))
-        self._persist_token_state()
+        # Offloaded to a thread: same blocking-DB/file concern as access_token().
+        await asyncio.to_thread(self._persist_token_state)
         return {'account_id': self.account_id, 'expires_at': self.expires_at, 'diagnostic': diagnostic}
 
     async def access_token(self) -> str:
@@ -424,7 +425,10 @@ class ChatGPTProvider(BaseProvider):
             # OAuth callback and API requests can be handled by different
             # workers/instances. Reload the persisted credential before
             # deciding that authentication is missing.
-            self._restore_token_state_if_needed()
+            # Offloaded to a thread: this hits PostgreSQL/disk synchronously
+            # and would otherwise block the event loop for every concurrent
+            # request while one caller refreshes its token.
+            await asyncio.to_thread(self._restore_token_state_if_needed)
             now = time.time()
 
             # A Web session access token can be JWT-valid and unexpired while
@@ -506,13 +510,16 @@ class ChatGPTProvider(BaseProvider):
             self.account_id = new_account_id
             self.expires_at = time.time() + max(60, int(data.get('expires_in', 3600)))
             try:
-                self._persist_token_state()
+                # Offloaded to a thread for the same reason as the restore call
+                # above: this can hit PostgreSQL synchronously.
+                await asyncio.to_thread(self._persist_token_state)
             except Exception as exc:
                 self.log.warning('Failed to persist ChatGPT token state: %s', exc)
             return self.cached_access_token
 
     def _payload(self, req: ChatCompletionRequest, provider_model: str) -> Dict[str, Any]:
-        prompt = flatten_for_chatgpt(req.messages)
+        system_instructions, remaining_messages = split_system_instructions(req.messages)
+        prompt = flatten_for_chatgpt(remaining_messages)
         decision = detect_realtime(req.messages)
         mode = self.web_search_mode
         should_hint_search = mode == 'always' or (mode == 'auto' and decision.needs_fresh_info)
@@ -520,16 +527,23 @@ class ChatGPTProvider(BaseProvider):
             prompt = self.web_search_instruction + '\n\nUser request follows.\n' + prompt
         payload: Dict[str, Any] = {
             'model': provider_model,
-            'instructions': 'You are a helpful assistant.',
+            'instructions': system_instructions or 'You are a helpful assistant.',
             'store': False,
             'stream': True,
             'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': prompt}]}],
         }
+        if should_hint_search:
+            # The prompt-text hint above only tells the model to *want* to
+            # search; it does not grant the ability. Without an actual
+            # `tools` entry the model has nothing to call and correctly
+            # reports it has no browsing tool. `tools` is a documented
+            # top-level field of this Responses-style request (same shape
+            # the official Codex CLI sends), unlike "metadata" below.
+            payload['tools'] = [{'type': 'web_search'}]
         # Codex's ChatGPT Responses endpoint is stricter than the public
         # Chat Completions schema: it rejects unknown top-level parameters
         # (including "metadata", unlike the official Responses API), so keep
-        # the upstream payload minimal. The web-search hint is already
-        # embedded directly into the prompt text above.
+        # the upstream payload minimal otherwise.
         return payload
 
     def _headers(self, token: str) -> Dict[str, str]:
@@ -599,6 +613,19 @@ class ChatGPTProvider(BaseProvider):
             response = await asyncio.to_thread(call)
         except Exception as exc:
             raise ProviderError(self.name, f'ChatGPT request failed: {exc}', 502, True) from exc
+
+        if response.status_code == 400 and 'tools' in payload:
+            # This endpoint is reverse-engineered from the Codex CLI and its
+            # exact accepted request schema isn't publicly documented. If it
+            # rejects the web-search tool entry outright, degrade to the
+            # plain text hint (already embedded in the prompt) instead of
+            # failing the whole request.
+            self.log.warning('ChatGPT Responses rejected a request containing "tools"; retrying once without it.')
+            payload = {k: v for k, v in payload.items() if k != 'tools'}
+            try:
+                response = await asyncio.to_thread(call)
+            except Exception as exc:
+                raise ProviderError(self.name, f'ChatGPT request failed: {exc}', 502, True) from exc
 
         try:
             if response.status_code >= 400:
@@ -763,8 +790,17 @@ class ChatGPTProvider(BaseProvider):
         sentinel = object()
 
         def worker():
+            request_payload = payload
             try:
-                response = cffi_requests.post(self.responses_url, headers=self._headers(token), json=payload, impersonate='chrome120', timeout=self.timeout, stream=True)
+                response = cffi_requests.post(self.responses_url, headers=self._headers(token), json=request_payload, impersonate='chrome120', timeout=self.timeout, stream=True)
+                if response.status_code == 400 and 'tools' in request_payload:
+                    # Same reverse-engineered-schema concern as chat(): retry
+                    # once without the web-search tool before giving up.
+                    # Nothing has been yielded to the caller yet, so this is
+                    # safe to do transparently.
+                    self.log.warning('ChatGPT Responses (stream) rejected a request containing "tools"; retrying once without it.')
+                    request_payload = {k: v for k, v in request_payload.items() if k != 'tools'}
+                    response = cffi_requests.post(self.responses_url, headers=self._headers(token), json=request_payload, impersonate='chrome120', timeout=self.timeout, stream=True)
                 if response.status_code >= 400:
                     retryable = response.status_code in (408, 409, 425, 429) or response.status_code >= 500
                     try:
