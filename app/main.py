@@ -181,7 +181,7 @@ async def chatgpt_auth_status():
         }
 
 
-@app.get('/health')
+@app.api_route('/health', methods=['GET', 'HEAD'])
 async def health():
     provider_health = []
     for provider in registry.all():
@@ -287,6 +287,6 @@ async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header
     )
 
 
-@app.get('/')
+@app.api_route('/', methods=['GET', 'HEAD'])
 async def root():
     return {'name': '9Router', 'version': app.version, 'docs': '/docs', 'health': '/health', 'metrics': '/metrics'}
