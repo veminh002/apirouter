@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from typing import AsyncIterator, Dict, Optional
 
@@ -8,6 +9,8 @@ from .models import ChatCompletionRequest, ProviderResult
 from .provider_registry import ProviderRegistry
 from .providers.base import ProviderError
 from .routing import RoutingPolicy
+
+logger = logging.getLogger('9router.router')
 
 
 class _NullAsyncContext:
@@ -55,10 +58,12 @@ class ProviderRouter:
                 try:
                     async with self.semaphore:
                         result = await provider.chat(req, provider_model)
-                    await self.metrics.provider_finished(provider.name, int((time.perf_counter()-started)*1000))
+                    latency = int((time.perf_counter()-started)*1000)
+                    await self.metrics.provider_finished(provider.name, latency)
                     await self.breaker.success(provider.name)
                     if index > 0:
                         await self.metrics.fallback()
+                    logger.info('served requested_model=%s provider=%s provider_model=%s latency_ms=%s fallback=%s', req.model, provider.name, provider_model, latency, index > 0)
                     return result, errors
                 except ProviderError as e:
                     latency = int((time.perf_counter()-started)*1000)
@@ -66,6 +71,7 @@ class ProviderRouter:
                     if e.retryable:
                         await self.breaker.failure(provider.name)
                     errors.append({'provider': e.provider, 'status_code': e.status_code, 'error': str(e), 'attempt': attempt + 1})
+                    logger.warning('provider attempt failed requested_model=%s provider=%s provider_model=%s status=%s error=%s', req.model, e.provider, provider_model, e.status_code, e)
                     if not e.retryable or attempt >= self.max_retries:
                         break
                     delay = e.retry_after if e.retry_after is not None else 0.35 * (attempt + 1)
@@ -105,16 +111,19 @@ class ProviderRouter:
                 async for chunk in provider.stream(req, provider_model):
                     emitted = True
                     yield chunk
-                await self.metrics.provider_finished(provider.name, int((time.perf_counter()-started)*1000))
+                latency = int((time.perf_counter()-started)*1000)
+                await self.metrics.provider_finished(provider.name, latency)
                 await self.breaker.success(provider.name)
                 if index > 0:
                     await self.metrics.fallback()
+                logger.info('served (stream) requested_model=%s provider=%s provider_model=%s latency_ms=%s fallback=%s', req.model, provider.name, provider_model, latency, index > 0)
                 return
             except ProviderError as e:
                 await self.metrics.provider_finished(provider.name, int((time.perf_counter()-started)*1000), error=True)
                 if e.retryable:
                     await self.breaker.failure(provider.name)
                 errors.append({'provider': e.provider, 'status_code': e.status_code, 'error': str(e)})
+                logger.warning('provider attempt failed (stream) requested_model=%s provider=%s provider_model=%s status=%s error=%s', req.model, e.provider, provider_model, e.status_code, e)
                 # Once bytes/chunks reached the client, a transparent provider switch is unsafe.
                 if emitted:
                     raise

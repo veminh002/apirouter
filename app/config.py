@@ -35,6 +35,22 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ''
     tokenrouter_api_key: str = ''
 
+    # Groq's "compound" models run their own built-in web-search tool
+    # server-side, so search here just means swapping to that model.
+    groq_web_search_mode: str = 'auto'
+    groq_web_search_model: str = 'groq/compound-mini'
+
+    # OpenRouter exposes web search as a server tool, but unlike ChatGPT/Groq
+    # it is billed per search call — off by default to keep the router fully
+    # free out of the box. Set to 'auto'/'always' only if you accept that cost.
+    openrouter_web_search_mode: str = 'off'
+    openrouter_web_search_model: str = ''
+
+    # TokenRouter's upstream search support depends on which model it
+    # proxies to; off by default until a search-capable model is set.
+    tokenrouter_web_search_mode: str = 'off'
+    tokenrouter_web_search_model: str = ''
+
     request_timeout: float = 45.0
     provider_timeout: float = 30.0
     max_retries: int = 1
@@ -52,13 +68,30 @@ class Settings(BaseSettings):
     openrouter_referer: str = 'https://github.com/9router/9router'
     openrouter_title: str = '9Router v3'
 
-    # Comma-separated provider:model candidates, highest priority first.
-    # Example: "openai:gpt-4o,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o-mini"
-    # Kept as env-friendly strings so the routing table can evolve without code edits.
-    alias_gpt_4o: str = 'chatgpt:gpt-5.6-terra,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
-    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.6-luna,tokenrouter:qwen/qwen3.8-max-free,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
-    alias_gpt_4_turbo: str = 'chatgpt:gpt-5.6-terra,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:openai/gpt-4o'
-    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,tokenrouter:qwen/qwen3.8-max-free,groq:llama-3.1-8b-instant,openrouter:google/gemini-2.5-flash-lite'
+    # Alias candidate chains: model đứng đầu là ưu tiên cao nhất.
+    #
+    # groq:llama-3.1-8b-instant (giá trị cũ) đã bị Groq KHAI TỬ (shutdown
+    # 16/08/2026 - console.groq.com/docs/deprecations). Groq khuyến nghị
+    # thay bằng openai/gpt-oss-20b - đây cũng chính là model lananh-main
+    # (GROQ_MODEL) đang dùng, đã verify hoạt động.
+    #
+    # openrouter:openai/gpt-4o và openrouter:google/gemini-2.5-flash-lite
+    # (giá trị cũ) đều là model TRẢ PHÍ trên OpenRouter. Thay bằng đúng 2
+    # model free lananh-main đang dùng và đã verify còn tồn tại/free qua
+    # openrouter.ai/collections/free-models tại thời điểm sửa (19/08/2026):
+    # nvidia/nemotron-3-super-120b-a12b:free (OPENROUTER_MODEL của lananh)
+    # và google/gemma-4-26b-a4b-it:free (OPENROUTER_VISION_MODEL của lananh).
+    #
+    # tokenrouter:qwen/qwen3.8-max-free giữ nguyên - KHÔNG verify được vì
+    # TokenRouter không có danh mục model công khai để tra cứu độc lập.
+    #
+    # chatgpt:gpt-5.6-terra / gpt-5.6-luna đã verify ĐÚNG và hiện hành qua
+    # developers.openai.com/codex/models (gpt-5.4/gpt-5.4-mini retire khỏi
+    # Codex-với-ChatGPT-login ngày 31/08/2026, thay bằng đúng 2 tên này).
+    alias_gpt_4o: str = 'chatgpt:gpt-5.6-terra,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
+    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.6-luna,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
+    alias_gpt_4_turbo: str = 'chatgpt:gpt-5.6-terra,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
+    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
 
     @field_validator('enable_chatgpt', 'enable_groq', 'enable_openrouter', 'enable_tokenrouter', mode='before')
     @classmethod

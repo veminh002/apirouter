@@ -30,13 +30,51 @@ def extract_text(content):
         return '\n'.join(parts)
     return str(content)
 
-def flatten_for_chatgpt(messages):
-    chunks = []
+def to_responses_input(messages):
+    """Convert chat messages (possibly multimodal) into Responses API `input` items.
+
+    Keeps each message as its own input item and preserves image_url content
+    blocks as `input_image` items, instead of collapsing everything into one
+    text-only blob (which would silently drop any images the caller sent).
+    Each Responses input item looks like:
+      {"role": "user"|"assistant", "content": [{"type": "input_text"|"input_image", ...}]}
+    """
+    valid_roles = {'user', 'assistant', 'developer'}
+    items = []
     for m in messages:
-        role = m.role.upper()
-        text = extract_text(m.content)
-        chunks.append(f'[{role}]\n{text}')
-    return '\n\n'.join(chunks)
+        role = m.role if m.role in valid_roles else 'user'
+        content = m.content
+        blocks = []
+        if isinstance(content, str):
+            if content:
+                blocks.append({'type': 'input_text', 'text': content})
+        elif isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                ptype = part.get('type')
+                if ptype == 'text':
+                    text = part.get('text', '')
+                    if text:
+                        blocks.append({'type': 'input_text', 'text': text})
+                elif ptype == 'image_url':
+                    # Standard OpenAI chat-completions shape:
+                    # {"type": "image_url", "image_url": {"url": "..."}}
+                    # (a bare string value is also tolerated defensively.)
+                    image_url = part.get('image_url')
+                    url = image_url.get('url') if isinstance(image_url, dict) else image_url
+                    if url:
+                        block = {'type': 'input_image', 'image_url': url}
+                        detail = image_url.get('detail') if isinstance(image_url, dict) else None
+                        if detail:
+                            block['detail'] = detail
+                        blocks.append(block)
+                elif ptype in ('input_text', 'input_image'):
+                    # Already Responses-native; pass through untouched.
+                    blocks.append(part)
+        if blocks:
+            items.append({'role': role, 'content': blocks})
+    return items
 
 def split_system_instructions(messages):
     """Pull system-role messages out of the conversation.

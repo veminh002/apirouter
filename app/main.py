@@ -59,11 +59,11 @@ if settings.enable_chatgpt:
     )
     registry.register(chatgpt_provider)
 if 'tokenrouter' in settings.configured_providers:
-    registry.register(TokenRouterProvider(settings.tokenrouter_api_key, settings.provider_timeout))
+    registry.register(TokenRouterProvider(settings.tokenrouter_api_key, settings.provider_timeout, settings.tokenrouter_web_search_mode, settings.tokenrouter_web_search_model))
 if 'groq' in settings.configured_providers:
-    registry.register(GroqProvider(settings.groq_api_key, settings.provider_timeout))
+    registry.register(GroqProvider(settings.groq_api_key, settings.provider_timeout, settings.groq_web_search_mode, settings.groq_web_search_model))
 if 'openrouter' in settings.configured_providers:
-    registry.register(OpenRouterProvider(settings.openrouter_api_key, settings.provider_timeout, settings.openrouter_referer, settings.openrouter_title))
+    registry.register(OpenRouterProvider(settings.openrouter_api_key, settings.provider_timeout, settings.openrouter_referer, settings.openrouter_title, settings.openrouter_web_search_mode, settings.openrouter_web_search_model))
 
 policy = RoutingPolicy({
     'gpt-4o': ModelAlias('gpt-4o', settings.parse_candidates(settings.alias_gpt_4o)),
