@@ -1,11 +1,12 @@
 import json
 import time
 import httpx
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, Optional
 
 from .base import BaseProvider, ProviderError, ProviderHealth
 from ..models import ProviderResult
 from ..normalizer import normalize_openai_response
+from ..realtime import detect_realtime
 
 
 class OpenAICompatibleProvider(BaseProvider):
@@ -23,17 +24,46 @@ class OpenAICompatibleProvider(BaseProvider):
     base_url: str
     models_url: str
 
-    def __init__(self, api_key, timeout):
+    def __init__(self, api_key, timeout, web_search_mode: str = 'off', web_search_model: str = ''):
         self.api_key, self.timeout = api_key, timeout
+        self.web_search_mode = (web_search_mode or 'off').strip().lower()
+        self.web_search_model = (web_search_model or '').strip()
 
     def _extra_headers(self) -> Dict[str, str]:
         return {}
+
+    def _search_tool(self) -> Optional[Dict[str, Any]]:
+        """Native web-search tool entry for this upstream, if it has one.
+        Subclasses override; providers without a tool rely on web_search_model instead."""
+        return None
+
+    def _needs_search(self, req) -> bool:
+        if self.web_search_mode == 'off':
+            return False
+        if self.web_search_mode == 'always':
+            return True
+        return detect_realtime(req.messages).needs_fresh_info
 
     def _headers(self):
         return {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json', **self._extra_headers()}
 
     def _payload(self, req, provider_model, stream=False):
         payload = req.model_dump(exclude_none=True)
+        if self._needs_search(req):
+            if self.web_search_model:
+                # Swapping to a dedicated search model (e.g. Groq's
+                # groq/compound-mini) means the model manages its own
+                # built-in tools; Groq's docs explicitly say compound
+                # systems don't support custom user-provided tools
+                # alongside them, so any function-calling `tools` the
+                # caller sent for the *original* model must be dropped
+                # here or the swapped request gets rejected outright.
+                provider_model = self.web_search_model
+                payload.pop('tools', None)
+                payload.pop('tool_choice', None)
+            tool = self._search_tool()
+            if tool:
+                payload['tools'] = [*payload.get('tools', []), tool]
         payload['model'] = provider_model
         payload['stream'] = stream
         return payload

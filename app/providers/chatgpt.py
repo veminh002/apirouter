@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from .base import BaseProvider, ProviderError, ProviderHealth
 from ..models import ChatCompletionRequest, ProviderResult
-from ..normalizer import flatten_for_chatgpt, split_system_instructions
+from ..normalizer import to_responses_input, split_system_instructions
 from ..realtime import detect_realtime
 
 
@@ -519,18 +519,27 @@ class ChatGPTProvider(BaseProvider):
 
     def _payload(self, req: ChatCompletionRequest, provider_model: str) -> Dict[str, Any]:
         system_instructions, remaining_messages = split_system_instructions(req.messages)
-        prompt = flatten_for_chatgpt(remaining_messages)
+        # Each message becomes its own Responses input item (instead of being
+        # flattened into one text blob), so image_url content blocks survive
+        # as `input_image` items and the model can actually see the image.
+        input_items = to_responses_input(remaining_messages)
+        if not input_items:
+            input_items = [{'role': 'user', 'content': [{'type': 'input_text', 'text': ''}]}]
         decision = detect_realtime(req.messages)
         mode = self.web_search_mode
         should_hint_search = mode == 'always' or (mode == 'auto' and decision.needs_fresh_info)
+        instructions = system_instructions or 'You are a helpful assistant.'
         if should_hint_search and self.web_search_instruction:
-            prompt = self.web_search_instruction + '\n\nUser request follows.\n' + prompt
+            # Goes into `instructions` rather than the user turn now, since
+            # user turns are structured content arrays (text + image blocks),
+            # not a single string to prepend text onto.
+            instructions = f'{instructions}\n\n{self.web_search_instruction}'
         payload: Dict[str, Any] = {
             'model': provider_model,
-            'instructions': system_instructions or 'You are a helpful assistant.',
+            'instructions': instructions,
             'store': False,
             'stream': True,
-            'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': prompt}]}],
+            'input': input_items,
         }
         if should_hint_search:
             # The prompt-text hint above only tells the model to *want* to
@@ -777,6 +786,7 @@ class ChatGPTProvider(BaseProvider):
                     return content
 
         return ''.join(parts).strip()
+
     async def stream(self, req: ChatCompletionRequest, provider_model: str) -> AsyncIterator[Dict[str, Any]]:
         token = await self.access_token()
         self.account_id = self.account_id or self._extract_account_id(token, self.id_token) or ''
