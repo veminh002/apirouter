@@ -34,7 +34,7 @@ Client có thể tiếp tục gửi tên logic như `gpt-4o-mini`, router sẽ t
 Có thể override routing bằng biến môi trường, ví dụ:
 
 ```env
-ALIAS_GPT_4O_MINI=groq:llama-3.1-8b-instant,openrouter:google/gemini-2.0-flash-001
+ALIAS_GPT_4O_MINI=groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free
 ```
 
 Muốn route thẳng, dùng cú pháp `provider:model`, ví dụ `openrouter:google/gemini-2.5-flash`.
@@ -54,12 +54,12 @@ Router có thể chuyển provider trong suốt trước khi chunk stream đầu
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn app:app --host 0.0.0.0 --port 10000
+uvicorn app.main:app --host 0.0.0.0 --port 10000
 ```
 
 ## Thứ tự routing
 
-ChatGPT Web là provider chính. Với mỗi alias model logic, thứ tự routing là: ChatGPT trước, rồi tới Groq, rồi tới OpenRouter.
+ChatGPT Web là provider chính. Với mỗi alias model logic, thứ tự routing là: ChatGPT trước, rồi tới TokenRouter, rồi tới Groq, rồi tới OpenRouter.
 
 ## Xác thực ChatGPT
 
@@ -82,3 +82,47 @@ trong request gửi tới ChatGPT Web, yêu cầu assistant gốc của ChatGPT 
 Đây chủ động là một cầu nối "best-effort" tới backend riêng tư của ChatGPT Web. Nó **không** đảm bảo
 mọi request đều kích hoạt được tìm kiếm gốc, vì quyết định đó do chính ChatGPT Web kiểm soát.
 Không có bất kỳ phụ thuộc tìm kiếm trả phí hay bên ngoài nào được thêm vào.
+
+## Tìm kiếm ở các tầng còn lại (Groq, OpenRouter, TokenRouter)
+
+Cùng cơ chế `detect_realtime` dùng cho ChatGPT được tái sử dụng cho ba provider
+OpenAI-compatible còn lại, mỗi provider bật `*_WEB_SEARCH_MODE=off|auto|always`
+độc lập (`auto` = chỉ bật khi câu hỏi có vẻ cần thông tin mới):
+
+- **Groq**: không có tool tìm kiếm riêng gọi qua `tools`; thay vào đó khi cần
+  tìm kiếm, request được chuyển sang `GROQ_WEB_SEARCH_MODEL` (mặc định
+  `groq/compound-mini`), một model "compound" của Groq tự quyết định gọi
+  web search server-side. Model gốc trong alias chỉ dùng khi không cần tìm kiếm.
+  **Miễn phí** — tính theo token bình thường của Groq, không phụ phí tìm kiếm.
+- **OpenRouter**: có thể thêm tool `{"type": "openrouter:web_search"}` vào
+  request khi cần, nhưng **tool này tính phí theo mỗi lượt tìm kiếm** (khác
+  ChatGPT/Groq). Vì vậy **mặc định TẮT** (`OPENROUTER_WEB_SEARCH_MODE=off`)
+  để cả router luôn free theo mặc định. Tự chịu trách nhiệm nếu bật `auto`/`always`.
+- **TokenRouter**: mặc định `off`. TokenRouter chỉ là một cổng OpenAI-compatible
+  tới nhiều model khác nhau; khả năng tìm kiếm phụ thuộc vào model cụ thể phía
+  sau nó có hỗ trợ hay không. Đặt `TOKENROUTER_WEB_SEARCH_MODE=auto` và
+  `TOKENROUTER_WEB_SEARCH_MODEL=<model có search>` nếu biết TokenRouter của bạn
+  có sẵn model như vậy.
+
+## Vision (đọc ảnh)
+
+Client gửi ảnh theo đúng format chuẩn OpenAI chat-completions:
+
+```json
+{"role": "user", "content": [
+  {"type": "text", "text": "Ảnh này có gì?"},
+  {"type": "image_url", "image_url": {"url": "https://... hoặc data:image/png;base64,..."}}
+]}
+```
+
+- **Groq / OpenRouter / TokenRouter**: payload được forward nguyên vẹn tới
+  upstream (`req.model_dump`), nên khối `image_url` đã tự động đi qua —
+  không cần sửa gì, miễn là **model đích có hỗ trợ vision** (vd. trên Groq:
+  `meta-llama/llama-4-scout-17b-16e-instruct`, `meta-llama/llama-4-maverick-17b-128e-instruct`;
+  trên OpenRouter: bất kỳ model đa phương thức nào như `openai/gpt-4o`,
+  `google/gemini-2.5-flash`, v.v.). Nếu alias của bạn trỏ tới model text-only,
+  ảnh sẽ bị model đó bỏ qua hoặc lỗi — bạn cần trỏ alias sang model vision.
+- **ChatGPT**: trước đây bị bỏ ảnh hoàn toàn (code cũ gộp cả hội thoại thành
+  một chuỗi text và loại bỏ mọi khối không phải `text`). Đã sửa: mỗi message
+  giờ được convert thành một Responses `input` item riêng, giữ nguyên
+  `input_image` cho ảnh, nên ChatGPT giờ nhìn thấy ảnh đúng như gửi lên.
