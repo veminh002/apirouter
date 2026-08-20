@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     groq_api_key: str = ''
     openrouter_api_key: str = ''
     tokenrouter_api_key: str = ''
+    nvidia_api_key: str = ''
+
+    # NVIDIA NIM (build.nvidia.com) chỉ là inference thuần, không model nào
+    # có tool duyệt web/tìm kiếm gốc đi kèm - khác ChatGPT/Groq. Off theo
+    # mặc định như TokenRouter; chỉ bật auto/always nếu tự trỏ
+    # nvidia_web_search_model sang một model NIM cụ thể có hỗ trợ search.
+    nvidia_web_search_mode: str = 'off'
+    nvidia_web_search_model: str = ''
 
     # Groq's "compound" models run their own built-in web-search tool
     # server-side, so search here just means swapping to that model.
@@ -58,6 +66,7 @@ class Settings(BaseSettings):
     max_concurrent_requests: int = 8
 
     enable_chatgpt: bool = True
+    enable_nvidia: bool = True
     enable_groq: bool = True
     enable_openrouter: bool = True
     enable_tokenrouter: bool = True
@@ -88,12 +97,16 @@ class Settings(BaseSettings):
     # chatgpt:gpt-5.6-terra / gpt-5.6-luna đã verify ĐÚNG và hiện hành qua
     # developers.openai.com/codex/models (gpt-5.4/gpt-5.4-mini retire khỏi
     # Codex-với-ChatGPT-login ngày 31/08/2026, thay bằng đúng 2 tên này).
-    alias_gpt_4o: str = 'chatgpt:gpt-5.6-terra,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
-    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.6-luna,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
-    alias_gpt_4_turbo: str = 'chatgpt:gpt-5.6-terra,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
-    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
+    #
+    # nvidia:nvidia/nemotron-3-ultra-550b-a55b và nvidia:mistralai/mistral-nemotron
+    # là tầng mới, chèn ngay sau chatgpt - cả hai là Free Endpoint xác nhận
+    # trên build.nvidia.com (20/08/2026), không phụ phí tìm kiếm hay token.
+    alias_gpt_4o: str = 'chatgpt:gpt-5.6-terra,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
+    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.6-luna,nvidia:mistralai/mistral-nemotron,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
+    alias_gpt_4_turbo: str = 'chatgpt:gpt-5.6-terra,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
+    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,nvidia:mistralai/mistral-nemotron,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
 
-    @field_validator('enable_chatgpt', 'enable_groq', 'enable_openrouter', 'enable_tokenrouter', mode='before')
+    @field_validator('enable_chatgpt', 'enable_nvidia', 'enable_groq', 'enable_openrouter', 'enable_tokenrouter', mode='before')
     @classmethod
     def normalize_boolean(cls, value):
         if isinstance(value, str):
@@ -107,6 +120,8 @@ class Settings(BaseSettings):
         providers = []
         if self.enable_chatgpt:
             providers.append('chatgpt')
+        if self.enable_nvidia and self.nvidia_api_key:
+            providers.append('nvidia')
         if self.enable_tokenrouter and self.tokenrouter_api_key:
             providers.append('tokenrouter')
         if self.enable_groq and self.groq_api_key:

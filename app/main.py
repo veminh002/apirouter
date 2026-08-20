@@ -18,6 +18,7 @@ from .provider_registry import ProviderRegistry
 from .providers.base import ProviderError
 from .providers.chatgpt import ChatGPTProvider
 from .providers.groq import GroqProvider
+from .providers.nvidia import NvidiaProvider
 from .providers.openrouter import OpenRouterProvider
 from .providers.tokenrouter import TokenRouterProvider
 from .rate_limit import RateLimiter
@@ -58,6 +59,8 @@ if settings.enable_chatgpt:
         settings.chatgpt_oauth_scope,
     )
     registry.register(chatgpt_provider)
+if 'nvidia' in settings.configured_providers:
+    registry.register(NvidiaProvider(settings.nvidia_api_key, settings.provider_timeout, settings.nvidia_web_search_mode, settings.nvidia_web_search_model))
 if 'tokenrouter' in settings.configured_providers:
     registry.register(TokenRouterProvider(settings.tokenrouter_api_key, settings.provider_timeout, settings.tokenrouter_web_search_mode, settings.tokenrouter_web_search_model))
 if 'groq' in settings.configured_providers:
