@@ -14,6 +14,8 @@ Client
        -> retry / Retry-After
        -> ProviderRegistry
             -> ChatGPT-Web (PRIMARY, xác thực bằng refresh-token, SSE thật)
+            -> NVIDIA NIM (fallback, ngay sau ChatGPT)
+            -> TokenRouter (fallback)
             -> Groq (fallback)
             -> OpenRouter (fallback)
   -> Phản hồi / SSE tương thích OpenAI
@@ -59,7 +61,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 10000
 
 ## Thứ tự routing
 
-ChatGPT Web là provider chính. Với mỗi alias model logic, thứ tự routing là: ChatGPT trước, rồi tới TokenRouter, rồi tới Groq, rồi tới OpenRouter.
+ChatGPT Web là provider chính. Với mỗi alias model logic, thứ tự routing là: ChatGPT trước, rồi tới NVIDIA NIM, rồi tới TokenRouter, rồi tới Groq, rồi tới OpenRouter.
+
+## NVIDIA NIM
+
+Tầng fallback ngay sau ChatGPT, dùng endpoint OpenAI-compatible miễn phí của
+`build.nvidia.com` (`https://integrate.api.nvidia.com/v1`). Đặt `NVIDIA_API_KEY`
+(lấy free tại build.nvidia.com) và `ENABLE_NVIDIA=true` để bật. Model mặc định
+trong alias là `nvidia/nemotron-3-ultra-550b-a55b` (alias `gpt-4o`/`gpt-4-turbo`)
+và `mistralai/mistral-nemotron` (alias `gpt-4o-mini`/`gpt-3.5-turbo`) — cả hai
+đều là Free Endpoint trên build.nvidia.com tại thời điểm thêm (20/08/2026).
 
 ## Xác thực ChatGPT
 
@@ -83,12 +94,17 @@ trong request gửi tới ChatGPT Web, yêu cầu assistant gốc của ChatGPT 
 mọi request đều kích hoạt được tìm kiếm gốc, vì quyết định đó do chính ChatGPT Web kiểm soát.
 Không có bất kỳ phụ thuộc tìm kiếm trả phí hay bên ngoài nào được thêm vào.
 
-## Tìm kiếm ở các tầng còn lại (Groq, OpenRouter, TokenRouter)
+## Tìm kiếm ở các tầng còn lại (NVIDIA, Groq, OpenRouter, TokenRouter)
 
-Cùng cơ chế `detect_realtime` dùng cho ChatGPT được tái sử dụng cho ba provider
+Cùng cơ chế `detect_realtime` dùng cho ChatGPT được tái sử dụng cho bốn provider
 OpenAI-compatible còn lại, mỗi provider bật `*_WEB_SEARCH_MODE=off|auto|always`
 độc lập (`auto` = chỉ bật khi câu hỏi có vẻ cần thông tin mới):
 
+- **NVIDIA NIM**: các model trên build.nvidia.com là inference thuần, không
+  có tool duyệt web/tìm kiếm gốc đi kèm (khác ChatGPT/Groq). Mặc định
+  `off`. Chỉ đặt `NVIDIA_WEB_SEARCH_MODE=auto` và
+  `NVIDIA_WEB_SEARCH_MODEL=<model NIM có search>` nếu bạn biết chắc model
+  đó thực sự hỗ trợ (hiện catalog free của NVIDIA chưa có model nào như vậy).
 - **Groq**: không có tool tìm kiếm riêng gọi qua `tools`; thay vào đó khi cần
   tìm kiếm, request được chuyển sang `GROQ_WEB_SEARCH_MODEL` (mặc định
   `groq/compound-mini`), một model "compound" của Groq tự quyết định gọi
