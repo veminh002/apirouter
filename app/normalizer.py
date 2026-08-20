@@ -38,16 +38,19 @@ def to_responses_input(messages):
     text-only blob (which would silently drop any images the caller sent).
     Each Responses input item looks like:
       {"role": "user"|"assistant", "content": [{"type": "input_text"|"input_image", ...}]}
+    (assistant-role items use "output_text" instead of "input_text", per the
+    Responses API schema.)
     """
     valid_roles = {'user', 'assistant', 'developer'}
     items = []
     for m in messages:
         role = m.role if m.role in valid_roles else 'user'
+        text_type = 'output_text' if role == 'assistant' else 'input_text'
         content = m.content
         blocks = []
         if isinstance(content, str):
             if content:
-                blocks.append({'type': 'input_text', 'text': content})
+                blocks.append({'type': text_type, 'text': content})
         elif isinstance(content, list):
             for part in content:
                 if not isinstance(part, dict):
@@ -56,7 +59,7 @@ def to_responses_input(messages):
                 if ptype == 'text':
                     text = part.get('text', '')
                     if text:
-                        blocks.append({'type': 'input_text', 'text': text})
+                        blocks.append({'type': text_type, 'text': text})
                 elif ptype == 'image_url':
                     # Standard OpenAI chat-completions shape:
                     # {"type": "image_url", "image_url": {"url": "..."}}
