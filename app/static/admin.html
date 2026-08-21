@@ -1,0 +1,219 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>9Router Admin</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;line-height:1.5;color:#1a1a1a}
+  h1{font-size:20px}
+  h2{font-size:15px;margin:28px 0 8px;color:#444}
+  .box{border:1px solid #ddd;border-radius:10px;padding:16px;margin:12px 0}
+  .row{display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap}
+  .row label{width:170px;font-size:13px;color:#555;flex-shrink:0}
+  input[type=text],input[type=password],textarea{flex:1;min-width:240px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-family:ui-monospace,monospace;font-size:13px}
+  textarea{min-height:44px}
+  input[type=checkbox]{width:18px;height:18px}
+  button{padding:7px 14px;border-radius:6px;border:1px solid #333;background:#111;color:#fff;font-size:13px;cursor:pointer}
+  button.secondary{background:#fff;color:#111}
+  button:disabled{opacity:.5;cursor:default}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td,th{text-align:left;padding:4px 8px;border-bottom:1px solid #eee}
+  .pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px}
+  .ok{background:#e5f7e8;color:#1a7a2e}
+  .bad{background:#fbe6e6;color:#a32020}
+  .muted{color:#888;font-size:12px}
+  #msg{font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<h1>9Router Admin</h1>
+<div id="msg" class="muted"></div>
+
+<h2>Providers</h2>
+<div class="box" id="providers-box"></div>
+
+<h2>Model aliases</h2>
+<div class="box">
+  <table id="alias-table"></table>
+  <div class="row" style="margin-top:12px">
+    <label>New alias</label>
+    <input type="text" id="new-alias-name" placeholder="alias name, e.g. gpt-4o or my-model" style="min-width:160px;flex:0 0 200px">
+    <textarea id="new-alias-candidates" placeholder="provider:model,provider:model,..."></textarea>
+    <button id="add-alias">Add</button>
+  </div>
+  <div class="muted">Comma-separated provider:model candidates, first = highest priority. Deleting one of the 4 built-in names (gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo) removes it entirely, not just the override.</div>
+</div>
+
+<div class="row">
+  <button id="save">Save provider settings</button>
+  <button id="reset" class="secondary">Reset to env defaults</button>
+  <span class="muted" id="persist-warn"></span>
+</div>
+
+<h2>Health</h2>
+<div class="box" id="health-box"><table id="health-table"></table></div>
+
+<h2>Circuit breakers</h2>
+<div class="box" id="breaker-box"><table id="breaker-table"></table><br><button id="reset-breakers" class="secondary">Reset all breakers</button></div>
+
+<h2>Metrics</h2>
+<div class="box"><pre id="metrics-pre" style="white-space:pre-wrap;font-size:12px;margin:0"></pre></div>
+
+<script>
+const PROVIDERS = [
+  ['chatgpt', 'ChatGPT (login via /auth/chatgpt)', null],
+  ['nvidia', 'NVIDIA NIM', 'nvidia_api_key'],
+  ['groq', 'Groq', 'groq_api_key'],
+  ['openrouter', 'OpenRouter', 'openrouter_api_key'],
+  ['tokenrouter', 'TokenRouter', 'tokenrouter_api_key'],
+  ['tavily', 'Tavily (web search)', 'tavily_api_key'],
+];
+
+let current = null;
+
+function msg(text, isError) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.style.color = isError ? '#a32020' : '#1a7a2e';
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (res.status === 401) { msg('Invalid admin credentials.', true); throw new Error('unauthorized'); }
+  if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || res.statusText); }
+  return res.json();
+}
+
+function renderProviders(s) {
+  const el = document.getElementById('providers-box');
+  el.innerHTML = '';
+  for (const [id, label, keyField] of PROVIDERS) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const enableField = 'enable_' + id;
+    row.innerHTML = `
+      <input type="checkbox" data-field="${enableField}" ${s.settings[enableField] ? 'checked' : ''}>
+      <label>${label}</label>
+      ${keyField ? `<input type="password" data-field="${keyField}" placeholder="${s.settings[keyField]}">` : '<span class="muted">managed via OAuth</span>'}
+    `;
+    el.appendChild(row);
+  }
+}
+
+function renderAliases(s) {
+  const table = document.getElementById('alias-table');
+  const names = Object.keys(s.aliases).sort();
+  table.innerHTML = '<tr><th>Name</th><th>Candidates</th><th></th></tr>' + names.map(name => `
+    <tr data-alias="${name}">
+      <td style="white-space:nowrap;font-family:ui-monospace,monospace">${name}</td>
+      <td><textarea data-alias-candidates="${name}">${s.aliases[name]}</textarea></td>
+      <td><button class="secondary alias-save" data-alias-name="${name}">Save</button> <button class="secondary alias-delete" data-alias-name="${name}">Delete</button></td>
+    </tr>`).join('');
+  table.querySelectorAll('.alias-save').forEach(btn => btn.onclick = () => saveAlias(btn.dataset.aliasName));
+  table.querySelectorAll('.alias-delete').forEach(btn => btn.onclick = () => deleteAlias(btn.dataset.aliasName));
+}
+
+async function saveAlias(name) {
+  const candidates = document.querySelector(`[data-alias-candidates="${name}"]`).value.trim();
+  try {
+    current = await api('/admin/api/aliases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, candidates }) });
+    renderAliases(current);
+    msg(`Alias "${name}" saved.`);
+  } catch (e) { msg('Save failed: ' + e.message, true); }
+}
+
+async function deleteAlias(name) {
+  if (!confirm(`Delete alias "${name}"?`)) return;
+  try {
+    current = await api(`/admin/api/aliases/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    renderAliases(current);
+    msg(`Alias "${name}" deleted.`);
+  } catch (e) { msg('Delete failed: ' + e.message, true); }
+}
+
+document.getElementById('add-alias').onclick = async () => {
+  const name = document.getElementById('new-alias-name').value.trim();
+  const candidates = document.getElementById('new-alias-candidates').value.trim();
+  if (!name || !candidates) { msg('Name and candidates are both required.', true); return; }
+  try {
+    current = await api('/admin/api/aliases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, candidates }) });
+    renderAliases(current);
+    document.getElementById('new-alias-name').value = '';
+    document.getElementById('new-alias-candidates').value = '';
+    msg(`Alias "${name}" added.`);
+  } catch (e) { msg('Add failed: ' + e.message, true); }
+};
+
+function collectChanges() {
+  const out = {};
+  document.querySelectorAll('[data-field]').forEach(input => {
+    const field = input.dataset.field;
+    if (input.type === 'checkbox') { out[field] = input.checked; return; }
+    if (input.type === 'password') { if (input.value.trim()) out[field] = input.value.trim(); return; }
+    out[field] = input.value;
+  });
+  return out;
+}
+
+async function loadState() {
+  current = await api('/admin/api/state');
+  renderProviders(current);
+  renderAliases(current);
+  document.getElementById('persist-warn').textContent = current.not_persisted_without_database
+    ? 'DATABASE_URL not configured - changes will NOT survive a restart.' : '';
+}
+
+async function loadHealth() {
+  const h = await fetch('/health').then(r => r.json());
+  const table = document.getElementById('health-table');
+  table.innerHTML = '<tr><th>Provider</th><th>Status</th><th>Latency</th></tr>' +
+    h.providers.map(p => `<tr><td>${p.provider}</td><td><span class="pill ${p.healthy ? 'ok' : 'bad'}">${p.status}</span></td><td>${p.latency_ms ?? '-'} ms</td></tr>`).join('');
+}
+
+async function loadBreakers() {
+  const h = await fetch('/health').then(r => r.json());
+  const table = document.getElementById('breaker-table');
+  const entries = Object.entries(h.circuit_breakers || {});
+  table.innerHTML = '<tr><th>Provider</th><th>State</th><th>Failures</th><th>Retry in</th></tr>' +
+    entries.map(([name, s]) => `<tr><td>${name}</td><td><span class="pill ${s.state === 'closed' ? 'ok' : 'bad'}">${s.state}</span></td><td>${s.failures}</td><td>${s.retry_in_seconds}s</td></tr>`).join('');
+}
+
+async function loadMetrics() {
+  const m = await fetch('/metrics/json').then(r => r.json());
+  document.getElementById('metrics-pre').textContent = JSON.stringify(m, null, 2);
+}
+
+document.getElementById('save').onclick = async () => {
+  try {
+    await api('/admin/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectChanges()) });
+    msg('Saved. Providers rebuilt.');
+    await loadState();
+  } catch (e) { msg('Save failed: ' + e.message, true); }
+};
+
+document.getElementById('reset').onclick = async () => {
+  if (!confirm('Revert all admin overrides to environment defaults?')) return;
+  await api('/admin/api/settings/reset', { method: 'POST' });
+  msg('Reverted to environment defaults.');
+  await loadState();
+};
+
+document.getElementById('reset-breakers').onclick = async () => {
+  await api('/admin/api/circuit-breaker/reset', { method: 'POST' });
+  msg('Circuit breakers reset.');
+  await loadBreakers();
+};
+
+async function refreshLoop() {
+  await loadHealth().catch(() => {});
+  await loadBreakers().catch(() => {});
+  await loadMetrics().catch(() => {});
+}
+
+loadState().catch(e => msg(e.message, true));
+refreshLoop();
+setInterval(refreshLoop, 10000);
+</script>
+</body>
+</html>
