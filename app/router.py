@@ -84,6 +84,7 @@ class ProviderRouter:
                         result = await provider.chat(req, provider_model)
                     latency = int((time.perf_counter()-started)*1000)
                     await self.metrics.provider_finished(provider.name, latency)
+                    await self.metrics.provider_usage(provider.name, result.response.get('usage') or {})
                     await self.breaker.success(provider.name)
                     if index > 0:
                         await self.metrics.fallback()
@@ -132,12 +133,16 @@ class ProviderRouter:
             started = time.perf_counter()
             await self.metrics.provider_started(provider.name)
             emitted = False
+            usage = {}
             try:
                 async for chunk in provider.stream(req, provider_model):
                     emitted = True
+                    if isinstance(chunk, dict) and chunk.get('usage'):
+                        usage = chunk['usage']
                     yield chunk
                 latency = int((time.perf_counter()-started)*1000)
                 await self.metrics.provider_finished(provider.name, latency)
+                await self.metrics.provider_usage(provider.name, usage)
                 await self.breaker.success(provider.name)
                 if index > 0:
                     await self.metrics.fallback()
