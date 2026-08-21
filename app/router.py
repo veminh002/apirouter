@@ -49,7 +49,8 @@ class ProviderRouter:
             return req
         if self.search_mode == 'auto' and not detect_realtime(req.messages).needs_fresh_info:
             return req
-        query = extract_last_user_text(req.messages)
+        # Tavily's documented hard limit is 1500 chars; leave a small margin.
+        query = extract_last_user_text(req.messages).strip()[:1490]
         if not query:
             return req
         try:

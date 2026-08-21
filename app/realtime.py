@@ -49,8 +49,16 @@ def _text_from_message(message: Any) -> str:
 
 
 def detect_realtime(messages: list[Any]) -> RealtimeDecision:
-    joined = "\n".join(_text_from_message(m) for m in messages)
+    """Only the current (last user) turn decides intent - not the whole
+    history. Scanning every past message meant a keyword anywhere in prior
+    turns (or client-injected memory/context riding along as a user
+    message) could mark an unrelated new question as needing search."""
+    last_user_text = ""
+    for m in reversed(messages):
+        if getattr(m, "role", None) == "user":
+            last_user_text = _text_from_message(m)
+            break
     for pattern in _COMPILED:
-        if pattern.search(joined):
+        if pattern.search(last_user_text):
             return RealtimeDecision(True, "keyword_or_phrase")
     return RealtimeDecision(False, "no_realtime_signal")

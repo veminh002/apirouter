@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     enable_groq: bool = True
     enable_openrouter: bool = True
     enable_tokenrouter: bool = True
+    enable_tavily: bool = True
 
     circuit_failure_threshold: int = 5
     circuit_recovery_seconds: float = 30.0
@@ -120,7 +121,7 @@ class Settings(BaseSettings):
     alias_gpt_4_turbo: str = 'chatgpt:gpt-5.6-terra,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
     alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
 
-    @field_validator('enable_chatgpt', 'enable_nvidia', 'enable_groq', 'enable_openrouter', 'enable_tokenrouter', mode='before')
+    @field_validator('enable_chatgpt', 'enable_nvidia', 'enable_groq', 'enable_openrouter', 'enable_tokenrouter', 'enable_tavily', mode='before')
     @classmethod
     def normalize_boolean(cls, value):
         if isinstance(value, str):

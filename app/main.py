@@ -28,6 +28,17 @@ from .tavily import TavilyClient
 
 logger = logging.getLogger('9router')
 
+
+class _HealthCheckLogFilter(logging.Filter):
+    """Render (and similar platforms) polls /health every few seconds; that
+    swamps the access log and buries the requests that actually matter."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return '/health' not in record.getMessage()
+
+
+logging.getLogger('uvicorn.access').addFilter(_HealthCheckLogFilter())
+
 settings = get_settings()
 app = FastAPI(title='9Router', version='3.2.0')
 limiter = RateLimiter(settings.rate_limit_per_minute)
@@ -77,7 +88,7 @@ policy = RoutingPolicy({
 })
 router = ProviderRouter(
     registry, policy, settings.max_retries, breaker, metrics, semaphore=semaphore,
-    search_client=TavilyClient(settings.tavily_api_key, settings.provider_timeout, settings.tavily_max_results) if settings.tavily_api_key else None,
+    search_client=TavilyClient(settings.tavily_api_key, settings.provider_timeout, settings.tavily_max_results) if settings.enable_tavily and settings.tavily_api_key else None,
     search_mode=settings.tavily_search_mode,
 )
 
