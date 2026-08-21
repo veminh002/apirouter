@@ -68,10 +68,12 @@ ChatGPT Web là provider chính. Với mỗi alias model logic, thứ tự routi
 
 Tầng fallback ngay sau ChatGPT, dùng endpoint OpenAI-compatible miễn phí của
 `build.nvidia.com` (`https://integrate.api.nvidia.com/v1`). Đặt `NVIDIA_API_KEY`
-(lấy free tại build.nvidia.com) và `ENABLE_NVIDIA=true` để bật. Model mặc định
-trong alias là `nvidia/nemotron-3-ultra-550b-a55b` (alias `gpt-4o`/`gpt-4-turbo`)
-và `mistralai/mistral-nemotron` (alias `gpt-4o-mini`/`gpt-3.5-turbo`) — cả hai
-đều là Free Endpoint trên build.nvidia.com tại thời điểm thêm (20/08/2026).
+(lấy free tại build.nvidia.com) và `ENABLE_NVIDIA=true` để bật. Model dùng cho
+cả 4 alias là `nvidia/nemotron-3-ultra-550b-a55b` — Free Endpoint trên
+build.nvidia.com tại thời điểm thêm (20/08/2026). `mistralai/mistral-nemotron`
+ban đầu dùng cho alias `gpt-4o-mini`/`gpt-3.5-turbo` nhưng đã đổi sang
+`nemotron-3-ultra`: model nhỏ đó tiếng Việt kém, hay hallucinate persona và
+dữ liệu bịa cho cả câu hỏi đơn giản không cần search.
 `nemotron-3-ultra` là reasoning-hybrid model và mặc định trả về chain-of-thought
 thô lẫn vào `content`; provider tự tắt `enable_thinking` trừ khi caller tự set.
 
