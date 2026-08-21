@@ -109,13 +109,16 @@ class Settings(BaseSettings):
     # developers.openai.com/codex/models (gpt-5.4/gpt-5.4-mini retire khỏi
     # Codex-với-ChatGPT-login ngày 31/08/2026, thay bằng đúng 2 tên này).
     #
-    # nvidia:nvidia/nemotron-3-ultra-550b-a55b và nvidia:mistralai/mistral-nemotron
-    # là tầng mới, chèn ngay sau chatgpt - cả hai là Free Endpoint xác nhận
-    # trên build.nvidia.com (20/08/2026), không phụ phí tìm kiếm hay token.
+    # nvidia:nvidia/nemotron-3-ultra-550b-a55b là tầng mới, chèn ngay sau
+    # chatgpt - Free Endpoint xác nhận trên build.nvidia.com (20/08/2026),
+    # không phụ phí tìm kiếm hay token. Dùng cho cả 4 alias (kể cả mini):
+    # mistralai/mistral-nemotron ban đầu dùng cho alias mini nhưng model nhỏ
+    # đó tiếng Việt kém, hay bịa persona/dữ liệu cho câu hỏi đơn giản -
+    # nemotron-3-ultra lớn hơn, đa ngôn ngữ ổn định hơn.
     alias_gpt_4o: str = 'chatgpt:gpt-5.6-terra,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
-    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.6-luna,nvidia:mistralai/mistral-nemotron,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
+    alias_gpt_4o_mini: str = 'chatgpt:gpt-5.6-luna,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
     alias_gpt_4_turbo: str = 'chatgpt:gpt-5.6-terra,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
-    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,nvidia:mistralai/mistral-nemotron,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
+    alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
 
     @field_validator('enable_chatgpt', 'enable_nvidia', 'enable_groq', 'enable_openrouter', 'enable_tokenrouter', mode='before')
     @classmethod
