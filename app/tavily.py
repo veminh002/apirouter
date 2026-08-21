@@ -10,13 +10,17 @@ class TavilyClient:
 
     async def search(self, query: str) -> List[Dict[str, str]]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.post('https://api.tavily.com/search', json={
-                'api_key': self.api_key,
-                'query': query,
-                'max_results': self.max_results,
-                'include_answer': False,
-            })
-        r.raise_for_status()
+            r = await client.post(
+                'https://api.tavily.com/search',
+                headers={'Authorization': f'Bearer {self.api_key}'},
+                json={
+                    'query': query,
+                    'max_results': self.max_results,
+                    'include_answer': False,
+                },
+            )
+        if r.status_code >= 400:
+            raise httpx.HTTPStatusError(f'{r.status_code} {r.text[:300]}', request=r.request, response=r)
         return [
             {'title': item.get('title', ''), 'url': item.get('url', ''), 'content': item.get('content', '')}
             for item in r.json().get('results', [])
