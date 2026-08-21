@@ -48,7 +48,14 @@ services:
       - key: CHATGPT_WEB_SEARCH_MODE
         value: "auto"
 
+      - key: NVIDIA_WEB_SEARCH_MODE
+        value: "off"
+      - key: NVIDIA_WEB_SEARCH_MODEL
+        value: ""
+
       - key: ENABLE_CHATGPT
+        value: "true"
+      - key: ENABLE_NVIDIA
         value: "true"
       - key: ENABLE_TOKENROUTER
         value: "true"
@@ -56,6 +63,8 @@ services:
         value: "true"
       - key: ENABLE_OPENROUTER
         value: "true"
+      - key: NVIDIA_API_KEY
+        sync: false
       - key: TOKENROUTER_API_KEY
         sync: false
       - key: GROQ_API_KEY
@@ -79,13 +88,13 @@ services:
         value: "30"
 
       - key: ALIAS_GPT_4O
-        value: "chatgpt:gpt-5.6-terra,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free"
+        value: "chatgpt:gpt-5.6-terra,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free"
       - key: ALIAS_GPT_4O_MINI
-        value: "chatgpt:gpt-5.6-luna,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free"
+        value: "chatgpt:gpt-5.6-luna,nvidia:mistralai/mistral-nemotron,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free"
       - key: ALIAS_GPT_4_TURBO
-        value: "chatgpt:gpt-5.6-terra,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free"
+        value: "chatgpt:gpt-5.6-terra,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free"
       - key: ALIAS_GPT_3_5_TURBO
-        value: "chatgpt:gpt-5.6-luna,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free"
+        value: "chatgpt:gpt-5.6-luna,nvidia:mistralai/mistral-nemotron,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free"
 
       - key: OPENROUTER_REFERER
         value: "https://github.com/9router/9router"
