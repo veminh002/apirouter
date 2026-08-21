@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import List
+from typing import Dict, List
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', extra='ignore', case_sensitive=False)
 
     router9_api_key: str = ''
+
+    # /admin dashboard (Basic Auth). Empty password keeps the dashboard
+    # disabled - it must be turned on explicitly, since it can edit API
+    # keys and provider routing at runtime.
+    admin_username: str = 'admin'
+    admin_password: str = ''
 
     tavily_api_key: str = ''
     # Chạy trước router.complete()/stream(), kết quả chèn vào messages cho
@@ -120,6 +126,12 @@ class Settings(BaseSettings):
     alias_gpt_4o_mini: str = 'chatgpt:gpt-5.6-luna,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
     alias_gpt_4_turbo: str = 'chatgpt:gpt-5.6-terra,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-120b,openrouter:nvidia/nemotron-3-super-120b-a12b:free'
     alias_gpt_3_5_turbo: str = 'chatgpt:gpt-5.6-luna,nvidia:nvidia/nemotron-3-ultra-550b-a55b,tokenrouter:qwen/qwen3.8-max-free,groq:openai/gpt-oss-20b,openrouter:google/gemma-4-26b-a4b-it:free'
+
+    # Admin-editable aliases (see admin.py /admin/api/aliases), layered on
+    # top of the 4 defaults above. Key = alias name (any string, matched
+    # case-insensitively), value = candidate chain string, or '' to delete
+    # (including deleting one of the 4 built-in names above).
+    model_aliases: Dict[str, str] = Field(default_factory=dict)
 
     @field_validator('enable_chatgpt', 'enable_nvidia', 'enable_groq', 'enable_openrouter', 'enable_tokenrouter', 'enable_tavily', mode='before')
     @classmethod

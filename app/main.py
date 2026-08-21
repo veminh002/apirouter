@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import time
@@ -9,22 +8,13 @@ from urllib.parse import parse_qsl
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
+from .admin import build_admin_router
 from .auth import validate_auth
-from .circuit_breaker import CircuitBreaker
 from .config import get_settings
-from .metrics import Metrics
 from .models import ChatCompletionRequest
-from .provider_registry import ProviderRegistry
 from .providers.base import ProviderError
-from .providers.chatgpt import ChatGPTProvider
-from .providers.groq import GroqProvider
-from .providers.nvidia import NvidiaProvider
-from .providers.openrouter import OpenRouterProvider
-from .providers.tokenrouter import TokenRouterProvider
 from .rate_limit import RateLimiter
-from .router import ProviderRouter
-from .routing import ModelAlias, RoutingPolicy
-from .tavily import TavilyClient
+from .state_holder import StateHolder
 
 logger = logging.getLogger('9router')
 
@@ -39,62 +29,15 @@ class _HealthCheckLogFilter(logging.Filter):
 
 logging.getLogger('uvicorn.access').addFilter(_HealthCheckLogFilter())
 
-settings = get_settings()
+env_settings = get_settings()
 app = FastAPI(title='9Router', version='3.2.0')
-limiter = RateLimiter(settings.rate_limit_per_minute)
-semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
-metrics = Metrics()
-breaker = CircuitBreaker(settings.circuit_failure_threshold, settings.circuit_recovery_seconds)
-
-registry = ProviderRegistry()
-chatgpt_provider = None
-if settings.enable_chatgpt:
-    chatgpt_provider = ChatGPTProvider(
-        settings.chatgpt_refresh_token,
-        settings.provider_timeout,
-        settings.chatgpt_token_state_file,
-        settings.database_url,
-        settings.chatgpt_token_encryption_key,
-        settings.chatgpt_keepalive_hours,
-        settings.chatgpt_web_search_mode,
-        settings.chatgpt_web_search_instruction,
-        settings.chatgpt_access_token,
-        settings.chatgpt_access_token_expires_in,
-        settings.chatgpt_client_id,
-        settings.chatgpt_redirect_uri,
-        settings.chatgpt_auth_url,
-        settings.chatgpt_account_id,
-        settings.chatgpt_id_token,
-        settings.chatgpt_responses_url,
-        settings.chatgpt_originator,
-        settings.chatgpt_version,
-        settings.chatgpt_oauth_scope,
-    )
-    registry.register(chatgpt_provider)
-if 'nvidia' in settings.configured_providers:
-    registry.register(NvidiaProvider(settings.nvidia_api_key, settings.provider_timeout, settings.nvidia_web_search_mode, settings.nvidia_web_search_model))
-if 'tokenrouter' in settings.configured_providers:
-    registry.register(TokenRouterProvider(settings.tokenrouter_api_key, settings.provider_timeout, settings.tokenrouter_web_search_mode, settings.tokenrouter_web_search_model))
-if 'groq' in settings.configured_providers:
-    registry.register(GroqProvider(settings.groq_api_key, settings.provider_timeout, settings.groq_web_search_mode, settings.groq_web_search_model))
-if 'openrouter' in settings.configured_providers:
-    registry.register(OpenRouterProvider(settings.openrouter_api_key, settings.provider_timeout, settings.openrouter_referer, settings.openrouter_title, settings.openrouter_web_search_mode, settings.openrouter_web_search_model))
-
-policy = RoutingPolicy({
-    'gpt-4o': ModelAlias('gpt-4o', settings.parse_candidates(settings.alias_gpt_4o)),
-    'gpt-4o-mini': ModelAlias('gpt-4o-mini', settings.parse_candidates(settings.alias_gpt_4o_mini)),
-    'gpt-4-turbo': ModelAlias('gpt-4-turbo', settings.parse_candidates(settings.alias_gpt_4_turbo)),
-    'gpt-3.5-turbo': ModelAlias('gpt-3.5-turbo', settings.parse_candidates(settings.alias_gpt_3_5_turbo)),
-})
-router = ProviderRouter(
-    registry, policy, settings.max_retries, breaker, metrics, semaphore=semaphore,
-    search_client=TavilyClient(settings.tavily_api_key, settings.provider_timeout, settings.tavily_max_results) if settings.enable_tavily and settings.tavily_api_key else None,
-    search_mode=settings.tavily_search_mode,
-)
+limiter = RateLimiter(env_settings.rate_limit_per_minute)
+holder = StateHolder(env_settings, env_settings.max_concurrent_requests)
+app.include_router(build_admin_router(holder))
 
 
 async def auth_and_limit(authorization: Optional[str]):
-    validate_auth(authorization, settings)
+    validate_auth(authorization, holder.state.settings)
     key = (authorization or 'anonymous').removeprefix('Bearer ').strip()
     await limiter.check(key[-64:] if key else 'anonymous')
 
@@ -105,18 +48,19 @@ def sse(data):
 
 @app.on_event('startup')
 async def startup_event():
-    if chatgpt_provider is not None:
-        await chatgpt_provider.start_keepalive()
+    if holder.state.chatgpt_provider is not None:
+        await holder.state.chatgpt_provider.start_keepalive()
 
 
 @app.on_event('shutdown')
 async def shutdown_event():
-    if chatgpt_provider is not None:
-        await chatgpt_provider.stop_keepalive()
+    if holder.state.chatgpt_provider is not None:
+        await holder.state.chatgpt_provider.stop_keepalive()
 
 
 @app.get('/auth/chatgpt', response_class=HTMLResponse)
 async def chatgpt_auth_start():
+    chatgpt_provider = holder.state.chatgpt_provider
     if chatgpt_provider is None:
         return HTMLResponse('<h2>ChatGPT authentication is disabled.</h2>', status_code=503)
     authorize_url = chatgpt_provider.create_oauth_login()
@@ -138,6 +82,7 @@ async def chatgpt_auth_start():
 
 
 async def _finish_chatgpt_oauth(callback_url: str):
+    chatgpt_provider = holder.state.chatgpt_provider
     if chatgpt_provider is None:
         return HTMLResponse('<h2>ChatGPT authentication is disabled.</h2>', status_code=503)
     try:
@@ -176,6 +121,7 @@ async def chatgpt_auth_callback_post(request: Request):
 
 @app.get('/auth/chatgpt/status')
 async def chatgpt_auth_status():
+    chatgpt_provider = holder.state.chatgpt_provider
     if chatgpt_provider is None:
         return {'enabled': False}
     try:
@@ -202,29 +148,30 @@ async def chatgpt_auth_status():
 
 @app.api_route('/health', methods=['GET', 'HEAD'])
 async def health():
+    state = holder.state
     provider_health = []
-    for provider in registry.all():
+    for provider in state.registry.all():
         result = await provider.health()
         provider_health.append(result.__dict__)
-    state = await breaker.snapshot()
+    breaker_snapshot = await state.breaker.snapshot()
     healthy = all(x['healthy'] for x in provider_health) if provider_health else False
     return {
         'status': 'ok' if healthy else ('degraded' if provider_health else 'down'),
         'version': app.version,
         'providers': provider_health,
-        'circuit_breakers': state,
+        'circuit_breakers': breaker_snapshot,
         'time': int(time.time()),
     }
 
 
 @app.get('/metrics')
 async def metrics_endpoint():
-    return PlainTextResponse(await metrics.prometheus(), media_type='text/plain; version=0.0.4')
+    return PlainTextResponse(await holder.state.metrics.prometheus(), media_type='text/plain; version=0.0.4')
 
 
 @app.get('/metrics/json')
 async def metrics_json():
-    return await metrics.snapshot()
+    return await holder.state.metrics.snapshot()
 
 
 @app.get('/v1/models')
@@ -235,7 +182,7 @@ async def models(authorization: Optional[str] = Header(None)):
         'object': 'list',
         'data': [
             {'id': name, 'object': 'model', 'created': created, 'owned_by': '9router'}
-            for name in policy.models()
+            for name in holder.state.policy.models()
         ],
     }
 
@@ -243,24 +190,25 @@ async def models(authorization: Optional[str] = Header(None)):
 @app.post('/v1/chat/completions')
 async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header(None)):
     await auth_and_limit(authorization)
-    if not registry.all():
+    state = holder.state
+    if not state.registry.all():
         raise HTTPException(503, 'No provider is configured. Set CHATGPT_REFRESH_TOKEN and/or fallback provider API keys.')
 
     if not req.stream:
         try:
-            result, errors = await router.complete(req)
-        except Exception as exc:
+            result, errors = await state.router.complete(req)
+        except Exception:
             logger.exception('Unhandled /v1/chat/completions failure for model=%s', req.model)
-            await metrics.request('500')
+            await state.metrics.request('500')
             return JSONResponse(
                 status_code=500,
                 content={'error': {'message': 'Internal router error', 'type': 'internal_error', 'code': 'router_exception'}}
             )
         if not result:
             logger.error('All providers failed for model=%s: %s', req.model, errors)
-            await metrics.request('502')
+            await state.metrics.request('502')
             return JSONResponse(status_code=502, content={'error': {'message': 'All providers failed', 'type': 'router_error', 'code': 'provider_unavailable', 'details': errors}})
-        await metrics.request('200')
+        await state.metrics.request('200')
         response = dict(result.response)
         response['model'] = req.model
         response['router'] = {
@@ -278,8 +226,8 @@ async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header
                  'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]}
         yield sse(first)
         try:
-            async with semaphore:
-                async for chunk in router.stream(req):
+            async with holder.semaphore:
+                async for chunk in state.router.stream(req):
                     chunk = dict(chunk)
                     chunk['id'] = rid
                     chunk['object'] = 'chat.completion.chunk'
@@ -290,14 +238,14 @@ async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header
                      'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}
             yield sse(final)
             yield 'data: [DONE]\n\n'
-            await metrics.request('200')
+            await state.metrics.request('200')
         except Exception as exc:
             # The headers have already been sent. The client receives an SSE error event.
             logger.error('Stream failed for model=%s: %s', req.model, exc)
             error = {'error': {'message': str(exc), 'type': 'router_error', 'code': 'stream_error'}}
             yield sse(error)
             yield 'data: [DONE]\n\n'
-            await metrics.request('502_stream')
+            await state.metrics.request('502_stream')
 
     return StreamingResponse(
         event_stream(),
@@ -308,4 +256,4 @@ async def chat(req: ChatCompletionRequest, authorization: Optional[str] = Header
 
 @app.api_route('/', methods=['GET', 'HEAD'])
 async def root():
-    return {'name': '9Router', 'version': app.version, 'docs': '/docs', 'health': '/health', 'metrics': '/metrics'}
+    return {'name': '9Router', 'version': app.version, 'docs': '/docs', 'health': '/health', 'metrics': '/metrics', 'admin': '/admin'}
