@@ -45,8 +45,15 @@ services:
         sync: false
       - key: CHATGPT_KEEPALIVE_HOURS
         value: "6"
-      - key: CHATGPT_WEB_SEARCH_MODE
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: TAVILY_SEARCH_MODE
         value: "auto"
+      - key: TAVILY_MAX_RESULTS
+        value: "5"
+
+      - key: CHATGPT_WEB_SEARCH_MODE
+        value: "off"
 
       - key: NVIDIA_WEB_SEARCH_MODE
         value: "off"

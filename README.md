@@ -10,6 +10,7 @@ Client
   -> Auth + rate limit
   -> RoutingPolicy / ModelAlias
   -> ProviderRouter
+       -> Tavily search (nếu TAVILY_SEARCH_MODE != off, chèn context 1 lần)
        -> CircuitBreaker
        -> retry / Retry-After
        -> ProviderRegistry
@@ -71,6 +72,8 @@ Tầng fallback ngay sau ChatGPT, dùng endpoint OpenAI-compatible miễn phí c
 trong alias là `nvidia/nemotron-3-ultra-550b-a55b` (alias `gpt-4o`/`gpt-4-turbo`)
 và `mistralai/mistral-nemotron` (alias `gpt-4o-mini`/`gpt-3.5-turbo`) — cả hai
 đều là Free Endpoint trên build.nvidia.com tại thời điểm thêm (20/08/2026).
+`nemotron-3-ultra` là reasoning-hybrid model và mặc định trả về chain-of-thought
+thô lẫn vào `content`; provider tự tắt `enable_thinking` trừ khi caller tự set.
 
 ## Xác thực ChatGPT
 
@@ -84,41 +87,36 @@ Khi `stream=true`, SSE của ChatGPT Web được đọc tuần tự và chuyể
 
 ChatGPT Web vẫn là provider chính. Router cache access token, chấp nhận và lưu lại refresh token đã rotate khi được trả về, và có thể chạy một tác vụ nền keep-alive để refresh định kỳ. Đặt `CHATGPT_TOKEN_STATE_FILE` trỏ tới một đường dẫn lưu trữ bền vững để token đã rotate không bị mất khi restart, và dùng `CHATGPT_KEEPALIVE_HOURS` để điều chỉnh tần suất refresh (mặc định 6 giờ). Keep-alive có thể reset thời gian sống idle của phía cấp token khi được cho phép, nhưng không client nào có thể kéo dài thời gian sống tối đa tuyệt đối do phía cấp token quy định.
 
-## Tìm kiếm/realtime gốc của ChatGPT Web (100% miễn phí)
+## Tìm kiếm web: Tavily tập trung, tắt search riêng ở từng provider
 
-ApiRouter không gọi Tavily, Brave, Bing, Google Search, hay bất kỳ API tìm kiếm ngoài nào khác.
-Khi `CHATGPT_WEB_SEARCH_MODE=auto`, các request có vẻ cần thông tin thời gian thực sẽ được thêm một gợi ý nhỏ
-trong request gửi tới ChatGPT Web, yêu cầu assistant gốc của ChatGPT Web dùng khả năng duyệt web/tìm kiếm riêng của nó nếu có sẵn. Bản thân router không bao giờ tự fetch trang web.
+Tất cả tìm kiếm đi qua **Tavily** một lần duy nhất, ở `ProviderRouter`, trước
+khi request được thử qua bất kỳ provider nào (ChatGPT, NVIDIA, TokenRouter,
+Groq, OpenRouter). Kết quả search được chèn thành một message `role: system`
+ngay trước câu hỏi cuối của user — nên **mọi provider trong chuỗi fallback
+đều thấy cùng một context tìm kiếm**, kể cả khi router phải fallback từ
+ChatGPT sang Groq giữa chừng.
 
-Đây chủ động là một cầu nối "best-effort" tới backend riêng tư của ChatGPT Web. Nó **không** đảm bảo
-mọi request đều kích hoạt được tìm kiếm gốc, vì quyết định đó do chính ChatGPT Web kiểm soát.
-Không có bất kỳ phụ thuộc tìm kiếm trả phí hay bên ngoài nào được thêm vào.
+Cấu hình:
 
-## Tìm kiếm ở các tầng còn lại (NVIDIA, Groq, OpenRouter, TokenRouter)
+```env
+TAVILY_API_KEY=tvly-...
+TAVILY_SEARCH_MODE=auto   # off | auto | always
+TAVILY_MAX_RESULTS=5
+```
 
-Cùng cơ chế `detect_realtime` dùng cho ChatGPT được tái sử dụng cho bốn provider
-OpenAI-compatible còn lại, mỗi provider bật `*_WEB_SEARCH_MODE=off|auto|always`
-độc lập (`auto` = chỉ bật khi câu hỏi có vẻ cần thông tin mới):
+- `off`: không gọi Tavily, không chèn gì (mặc định nếu không set `TAVILY_API_KEY`).
+- `auto`: chỉ gọi Tavily khi câu hỏi có vẻ cần thông tin mới (dùng chung
+  `detect_realtime` với cơ chế cũ của ChatGPT).
+- `always`: gọi Tavily cho mọi request.
 
-- **NVIDIA NIM**: các model trên build.nvidia.com là inference thuần, không
-  có tool duyệt web/tìm kiếm gốc đi kèm (khác ChatGPT/Groq). Mặc định
-  `off`. Chỉ đặt `NVIDIA_WEB_SEARCH_MODE=auto` và
-  `NVIDIA_WEB_SEARCH_MODEL=<model NIM có search>` nếu bạn biết chắc model
-  đó thực sự hỗ trợ (hiện catalog free của NVIDIA chưa có model nào như vậy).
-- **Groq**: không có tool tìm kiếm riêng gọi qua `tools`; thay vào đó khi cần
-  tìm kiếm, request được chuyển sang `GROQ_WEB_SEARCH_MODEL` (mặc định
-  `groq/compound-mini`), một model "compound" của Groq tự quyết định gọi
-  web search server-side. Model gốc trong alias chỉ dùng khi không cần tìm kiếm.
-  **Miễn phí** — tính theo token bình thường của Groq, không phụ phí tìm kiếm.
-- **OpenRouter**: có thể thêm tool `{"type": "openrouter:web_search"}` vào
-  request khi cần, nhưng **tool này tính phí theo mỗi lượt tìm kiếm** (khác
-  ChatGPT/Groq). Vì vậy **mặc định TẮT** (`OPENROUTER_WEB_SEARCH_MODE=off`)
-  để cả router luôn free theo mặc định. Tự chịu trách nhiệm nếu bật `auto`/`always`.
-- **TokenRouter**: mặc định `off`. TokenRouter chỉ là một cổng OpenAI-compatible
-  tới nhiều model khác nhau; khả năng tìm kiếm phụ thuộc vào model cụ thể phía
-  sau nó có hỗ trợ hay không. Đặt `TOKENROUTER_WEB_SEARCH_MODE=auto` và
-  `TOKENROUTER_WEB_SEARCH_MODEL=<model có search>` nếu biết TokenRouter của bạn
-  có sẵn model như vậy.
+Nếu Tavily lỗi (mạng, hết quota, API key sai...), router log warning và
+**tiếp tục xử lý bình thường không có context search**, không làm fail request.
+
+**Search native của từng provider đã tắt hết** (`CHATGPT_WEB_SEARCH_MODE=off`,
+`GROQ_WEB_SEARCH_MODE=off`, `NVIDIA_/OPENROUTER_/TOKENROUTER_WEB_SEARCH_MODE=off`)
+để tránh trùng lặp — chỉ Tavily quyết định khi nào cần search. Muốn quay lại
+cơ chế cũ (ChatGPT/Groq tự search riêng, không qua Tavily) thì set các biến
+đó về `auto`/`always` như trước.
 
 ## Vision (đọc ảnh)
 
