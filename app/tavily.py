@@ -45,3 +45,27 @@ def extract_last_user_text(messages) -> str:
             if isinstance(content, list):
                 return '\n'.join(p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text')
     return ''
+
+
+def inject_context(messages, context: str):
+    """Prepend search context into the last user message's own content,
+    instead of inserting a separate system message mid-conversation.
+
+    Some models (Mistral, others with strict chat templates) reject a
+    system-role message that appears after an assistant turn - only the
+    very first message may be system. Folding the context into the
+    existing user turn avoids introducing any new role ordering at all,
+    so it works the same way across every provider/model."""
+    messages = list(messages)
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == 'user':
+            content = messages[i].content
+            if isinstance(content, str):
+                new_content = f'{context}\n\n{content}'
+            elif isinstance(content, list):
+                new_content = [{'type': 'text', 'text': context}, *content]
+            else:
+                return messages
+            messages[i] = messages[i].model_copy(update={'content': new_content})
+            return messages
+    return messages

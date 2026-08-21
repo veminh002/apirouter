@@ -5,12 +5,12 @@ from typing import AsyncIterator, Dict, Optional
 
 from .circuit_breaker import CircuitBreaker
 from .metrics import Metrics
-from .models import ChatCompletionRequest, Message, ProviderResult
+from .models import ChatCompletionRequest, ProviderResult
 from .provider_registry import ProviderRegistry
 from .providers.base import ProviderError
 from .realtime import detect_realtime
 from .routing import RoutingPolicy
-from .tavily import TavilyClient, extract_last_user_text, format_search_context
+from .tavily import TavilyClient, extract_last_user_text, format_search_context, inject_context
 
 logger = logging.getLogger('9router.router')
 
@@ -60,9 +60,7 @@ class ProviderRouter:
         context = format_search_context(query, results)
         if not context:
             return req
-        messages = list(req.messages)
-        messages.insert(len(messages) - 1, Message(role='system', content=context))
-        return req.model_copy(update={'messages': messages})
+        return req.model_copy(update={'messages': inject_context(req.messages, context)})
 
     async def complete(self, req: ChatCompletionRequest):
         req = await self._augment_with_search(req)
