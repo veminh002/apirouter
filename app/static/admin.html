@@ -5,60 +5,225 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>9Router Admin</title>
 <style>
-  body{font-family:system-ui,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;line-height:1.5;color:#1a1a1a}
-  h1{font-size:20px}
-  h2{font-size:15px;margin:28px 0 8px;color:#444}
-  .box{border:1px solid #ddd;border-radius:10px;padding:16px;margin:12px 0}
-  .row{display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap}
-  .row label{width:170px;font-size:13px;color:#555;flex-shrink:0}
-  input[type=text],input[type=password],textarea{flex:1;min-width:240px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-family:ui-monospace,monospace;font-size:13px}
-  textarea{min-height:44px}
-  input[type=checkbox]{width:18px;height:18px}
-  button{padding:7px 14px;border-radius:6px;border:1px solid #333;background:#111;color:#fff;font-size:13px;cursor:pointer}
-  button.secondary{background:#fff;color:#111}
-  button:disabled{opacity:.5;cursor:default}
+  :root{
+    --text:#1c1c1e;
+    --muted:#6e6e73;
+    --glass-bg:rgba(255,255,255,.46);
+    --glass-bg-strong:rgba(255,255,255,.62);
+    --glass-border:rgba(255,255,255,.55);
+    --glass-shadow:0 8px 30px rgba(31,38,90,.14), 0 1px 1px rgba(31,38,90,.06);
+    --accent-a:#0a84ff;
+    --accent-b:#5e5ce6;
+    --ok-fg:#0d7a3d;
+    --ok-bg:rgba(52,199,89,.16);
+    --bad-fg:#b3261e;
+    --bad-bg:rgba(255,69,58,.16);
+    --radius-lg:28px;
+    --radius-md:18px;
+    --radius-sm:12px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{background:#dfe6f5}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;
+    color:var(--text);
+    margin:0;
+    padding:36px 20px 90px;
+    min-height:100vh;
+    position:relative;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";
+    position:fixed;
+    inset:-10%;
+    z-index:-1;
+    background:
+      radial-gradient(38% 34% at 12% 8%, #7bd7ff 0%, transparent 70%),
+      radial-gradient(42% 38% at 88% 12%, #c9a8ff 0%, transparent 70%),
+      radial-gradient(46% 42% at 20% 92%, #ffb4d0 0%, transparent 70%),
+      radial-gradient(50% 46% at 90% 88%, #9fe6c8 0%, transparent 70%),
+      linear-gradient(160deg, #eef2fb, #dfe6f5 60%, #e8e4fb);
+    animation:drift 26s ease-in-out infinite alternate;
+  }
+  @keyframes drift{
+    0%{transform:scale(1) translate(0,0)}
+    100%{transform:scale(1.06) translate(-1.5%, 1.5%)}
+  }
+  @media (prefers-reduced-motion:reduce){ body::before{animation:none} }
+
+  .page{max-width:1180px;margin:0 auto}
+
+  header.hero{
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:22px 28px;margin-bottom:22px;
+  }
+  h1{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:0}
+  .subtitle{color:var(--muted);font-size:13.5px;margin:3px 0 0}
+  #msg{font-size:13px;font-weight:600;min-height:18px;text-align:right}
+
+  .glass{
+    position:relative;
+    background:var(--glass-bg);
+    -webkit-backdrop-filter:blur(28px) saturate(180%);
+    backdrop-filter:blur(28px) saturate(180%);
+    border:1px solid var(--glass-border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--glass-shadow);
+  }
+  .glass::before{
+    content:"";
+    position:absolute;inset:0;
+    border-radius:inherit;
+    padding:1px;
+    background:linear-gradient(160deg, rgba(255,255,255,.9), rgba(255,255,255,0) 40%, rgba(255,255,255,0) 70%, rgba(255,255,255,.35));
+    -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;
+    mask-composite:exclude;
+    pointer-events:none;
+  }
+
+  .bento{display:grid;grid-template-columns:repeat(12,1fr);gap:18px}
+  .tile{padding:22px 24px}
+  .tile-providers{grid-column:span 7}
+  .tile-aliases{grid-column:span 5}
+  .tile-health{grid-column:span 4}
+  .tile-breakers{grid-column:span 4}
+  .tile-tokens{grid-column:span 4}
+  .tile-metrics{grid-column:span 12}
+  @media (max-width:860px){
+    .tile-providers,.tile-aliases,.tile-health,.tile-breakers,.tile-tokens,.tile-metrics{grid-column:span 12}
+    header.hero{flex-direction:column;align-items:flex-start}
+    #msg{text-align:left}
+  }
+
+  h2.tile-title{
+    font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--muted);margin:0 0 14px;display:flex;align-items:center;gap:8px
+  }
+  h2.tile-title .dot{width:7px;height:7px;border-radius:50%;background:linear-gradient(135deg,var(--accent-a),var(--accent-b))}
+
+  .provider{padding:12px 0;border-bottom:1px solid rgba(60,60,67,.1)}
+  .provider:last-child{border-bottom:none;padding-bottom:0}
+  .provider-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .provider-row label{font-weight:600;font-size:14px;flex-shrink:0}
+  .provider-row input[type=text],.provider-row input[type=password]{
+    flex:1;min-width:190px;padding:8px 12px;border:1px solid rgba(60,60,67,.16);
+    border-radius:var(--radius-sm);font-family:var(--mono);font-size:12.5px;
+    background:rgba(255,255,255,.55);
+  }
+  .provider-row input[type=text]:focus,.provider-row input[type=password]:focus{outline:2px solid var(--accent-a);outline-offset:-1px;background:rgba(255,255,255,.85)}
+  input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent-a)}
+  .oauth-note{color:var(--muted);font-size:12.5px}
+  .provider-models{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0 0 28px}
+  .model-tag{
+    font-family:var(--mono);font-size:11px;color:#2b2b6b;cursor:pointer;
+    background:rgba(94,92,230,.12);border:1px solid rgba(94,92,230,.22);
+    border-radius:999px;padding:4px 10px;transition:background .15s,transform .15s;
+  }
+  .model-tag:hover{background:rgba(94,92,230,.22);transform:translateY(-1px)}
+  .no-models{font-size:12px;color:var(--muted);margin:9px 0 0 28px;font-style:italic}
+
   table{width:100%;border-collapse:collapse;font-size:13px}
-  td,th{text-align:left;padding:4px 8px;border-bottom:1px solid #eee}
-  .pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px}
-  .ok{background:#e5f7e8;color:#1a7a2e}
-  .bad{background:#fbe6e6;color:#a32020}
-  .muted{color:#888;font-size:12px}
-  #msg{font-size:13px;min-height:18px}
+  td,th{text-align:left;padding:9px 8px;border-bottom:1px solid rgba(60,60,67,.1);vertical-align:top}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+  tr.alias-row{transition:background .35s}
+  tr.alias-row.flash{background:rgba(94,92,230,.16)}
+  textarea{
+    width:100%;min-height:44px;padding:8px 10px;border:1px solid rgba(60,60,67,.16);
+    border-radius:var(--radius-sm);font-family:var(--mono);font-size:12.5px;resize:vertical;
+    background:rgba(255,255,255,.55);
+  }
+  textarea:focus{outline:2px solid var(--accent-a);outline-offset:-1px;background:rgba(255,255,255,.85)}
+  input#new-alias-name{
+    padding:8px 10px;border:1px solid rgba(60,60,67,.16);border-radius:var(--radius-sm);
+    font-family:var(--mono);font-size:12.5px;width:100%;background:rgba(255,255,255,.55);
+  }
+  .new-alias-grid{display:grid;grid-template-columns:150px 1fr auto;gap:8px;align-items:start;margin-top:14px}
+
+  button{
+    padding:8px 18px;border-radius:999px;border:1px solid transparent;
+    font-size:13px;font-weight:600;cursor:pointer;color:#fff;
+    background:linear-gradient(135deg,var(--accent-a),var(--accent-b));
+    box-shadow:0 4px 14px rgba(94,92,230,.35);
+    transition:transform .12s,box-shadow .12s;
+  }
+  button:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(94,92,230,.45)}
+  button.secondary{
+    background:rgba(255,255,255,.55);color:var(--text);
+    border:1px solid rgba(60,60,67,.16);box-shadow:none;
+  }
+  button.secondary:hover{background:rgba(255,255,255,.85);box-shadow:none}
+  button.small{padding:5px 12px;font-size:11.5px}
+  button:disabled{opacity:.5;cursor:default;transform:none}
+
+  .actions{display:flex;align-items:center;gap:10px;margin-top:20px;flex-wrap:wrap}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700}
+  .ok{background:var(--ok-bg);color:var(--ok-fg)}
+  .bad{background:var(--bad-bg);color:var(--bad-fg)}
+  .muted{color:var(--muted);font-size:12.5px}
+  pre{white-space:pre-wrap;font-size:11.5px;margin:0;font-family:var(--mono);max-height:340px;overflow:auto}
 </style>
 </head>
 <body>
-<h1>9Router Admin</h1>
-<div id="msg" class="muted"></div>
+<div class="page">
 
-<h2>Providers</h2>
-<div class="box" id="providers-box"></div>
-
-<h2>Model aliases</h2>
-<div class="box">
-  <table id="alias-table"></table>
-  <div class="row" style="margin-top:12px">
-    <label>New alias</label>
-    <input type="text" id="new-alias-name" placeholder="alias name, e.g. gpt-4o or my-model" style="min-width:160px;flex:0 0 200px">
-    <textarea id="new-alias-candidates" placeholder="provider:model,provider:model,..."></textarea>
-    <button id="add-alias">Add</button>
+<header class="hero glass">
+  <div>
+    <h1>9Router Admin</h1>
+    <div class="subtitle">Providers, model routing and live health for the 9Router gateway.</div>
   </div>
-  <div class="muted">Comma-separated provider:model candidates, first = highest priority. Deleting one of the 4 built-in names (gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo) removes it entirely, not just the override.</div>
+  <div id="msg"></div>
+</header>
+
+<div class="bento">
+
+  <section class="tile tile-providers glass">
+    <h2 class="tile-title"><span class="dot"></span>Providers</h2>
+    <div id="providers-box"></div>
+    <div class="actions">
+      <button id="save">Save provider settings</button>
+      <button id="reset" class="secondary">Reset to env defaults</button>
+      <span class="muted" id="persist-warn"></span>
+    </div>
+  </section>
+
+  <section class="tile tile-aliases glass">
+    <h2 class="tile-title"><span class="dot"></span>Model aliases</h2>
+    <table id="alias-table"></table>
+    <div class="new-alias-grid">
+      <input type="text" id="new-alias-name" placeholder="alias name, e.g. gpt-4o">
+      <textarea id="new-alias-candidates" placeholder="provider:model,provider:model,..."></textarea>
+      <button id="add-alias">Add</button>
+    </div>
+    <div class="muted" style="margin-top:10px">Comma-separated provider:model candidates, first = highest priority. Deleting one of the 4 built-in names (gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo) removes it entirely, not just the override.</div>
+  </section>
+
+  <section class="tile tile-health glass">
+    <h2 class="tile-title"><span class="dot"></span>Health</h2>
+    <table id="health-table"></table>
+  </section>
+
+  <section class="tile tile-breakers glass">
+    <h2 class="tile-title"><span class="dot"></span>Circuit breakers</h2>
+    <table id="breaker-table"></table>
+    <div class="actions"><button id="reset-breakers" class="secondary">Reset all breakers</button></div>
+  </section>
+
+  <section class="tile tile-tokens glass">
+    <h2 class="tile-title"><span class="dot"></span>Token usage</h2>
+    <table id="tokens-table"></table>
+    <div class="muted" style="margin-top:8px">Since last restart. ChatGPT's Codex endpoint doesn't report usage.</div>
+  </section>
+
+  <section class="tile tile-metrics glass">
+    <h2 class="tile-title"><span class="dot"></span>Metrics</h2>
+    <pre id="metrics-pre"></pre>
+  </section>
+
 </div>
-
-<div class="row">
-  <button id="save">Save provider settings</button>
-  <button id="reset" class="secondary">Reset to env defaults</button>
-  <span class="muted" id="persist-warn"></span>
 </div>
-
-<h2>Health</h2>
-<div class="box" id="health-box"><table id="health-table"></table></div>
-
-<h2>Circuit breakers</h2>
-<div class="box" id="breaker-box"><table id="breaker-table"></table><br><button id="reset-breakers" class="secondary">Reset all breakers</button></div>
-
-<h2>Metrics</h2>
-<div class="box"><pre id="metrics-pre" style="white-space:pre-wrap;font-size:12px;margin:0"></pre></div>
 
 <script>
 const PROVIDERS = [
@@ -75,7 +240,7 @@ let current = null;
 function msg(text, isError) {
   const el = document.getElementById('msg');
   el.textContent = text;
-  el.style.color = isError ? '#a32020' : '#1a7a2e';
+  el.style.color = isError ? 'var(--bad-fg)' : 'var(--ok-fg)';
 }
 
 async function api(path, opts) {
@@ -85,30 +250,75 @@ async function api(path, opts) {
   return res.json();
 }
 
+// Mirrors Settings.parse_candidates in app/config.py: comma-separated
+// "provider:model" pairs, first colon splits provider from model.
+function parseCandidates(value) {
+  return (value || '').split(',').map(item => {
+    const trimmed = item.trim();
+    const idx = trimmed.indexOf(':');
+    if (idx < 1) return null;
+    const provider = trimmed.slice(0, idx).trim();
+    const model = trimmed.slice(idx + 1).trim();
+    return provider && model ? { provider, model } : null;
+  }).filter(Boolean);
+}
+
+function modelsByProvider(aliases) {
+  const out = {};
+  for (const candidates of Object.values(aliases)) {
+    for (const { provider, model } of parseCandidates(candidates)) {
+      (out[provider] ||= new Set()).add(model);
+    }
+  }
+  return out;
+}
+
+function flashAliasesUsing(provider, model) {
+  document.querySelectorAll('tr.alias-row').forEach(row => {
+    const candidates = row.querySelector('[data-alias-candidates]').value;
+    const uses = parseCandidates(candidates).some(c => c.provider === provider && c.model === model);
+    if (uses) {
+      row.classList.add('flash');
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => row.classList.remove('flash'), 1400);
+    }
+  });
+}
+
 function renderProviders(s) {
   const el = document.getElementById('providers-box');
+  const byProvider = modelsByProvider(s.aliases);
   el.innerHTML = '';
   for (const [id, label, keyField] of PROVIDERS) {
-    const row = document.createElement('div');
-    row.className = 'row';
+    const wrap = document.createElement('div');
+    wrap.className = 'provider';
     const enableField = 'enable_' + id;
-    row.innerHTML = `
-      <input type="checkbox" data-field="${enableField}" ${s.settings[enableField] ? 'checked' : ''}>
-      <label>${label}</label>
-      ${keyField ? `<input type="password" data-field="${keyField}" placeholder="${s.settings[keyField]}">` : '<span class="muted">managed via OAuth</span>'}
+    const models = [...(byProvider[id] || [])].sort();
+    wrap.innerHTML = `
+      <div class="provider-row">
+        <input type="checkbox" data-field="${enableField}" ${s.settings[enableField] ? 'checked' : ''}>
+        <label>${label}</label>
+        ${keyField ? `<input type="password" data-field="${keyField}" placeholder="${s.settings[keyField]}">` : '<span class="oauth-note">managed via OAuth</span>'}
+      </div>
+      ${models.length
+        ? `<div class="provider-models">${models.map(m => `<span class="model-tag" data-provider="${id}" data-model="${m.replace(/"/g, '&quot;')}">${m}</span>`).join('')}</div>`
+        : `<div class="no-models">no aliases route to ${id} yet</div>`}
     `;
-    el.appendChild(row);
+    el.appendChild(wrap);
   }
+  el.querySelectorAll('.model-tag').forEach(tag => {
+    tag.onclick = () => flashAliasesUsing(tag.dataset.provider, tag.dataset.model);
+  });
 }
 
 function renderAliases(s) {
   const table = document.getElementById('alias-table');
   const names = Object.keys(s.aliases).sort();
   table.innerHTML = '<tr><th>Name</th><th>Candidates</th><th></th></tr>' + names.map(name => `
-    <tr data-alias="${name}">
+    <tr class="alias-row" data-alias="${name}">
       <td style="white-space:nowrap;font-family:ui-monospace,monospace">${name}</td>
       <td><textarea data-alias-candidates="${name}">${s.aliases[name]}</textarea></td>
-      <td><button class="secondary alias-save" data-alias-name="${name}">Save</button> <button class="secondary alias-delete" data-alias-name="${name}">Delete</button></td>
+      <td style="white-space:nowrap"><button class="secondary small alias-save" data-alias-name="${name}">Save</button> <button class="secondary small alias-delete" data-alias-name="${name}">Delete</button></td>
     </tr>`).join('');
   table.querySelectorAll('.alias-save').forEach(btn => btn.onclick = () => saveAlias(btn.dataset.aliasName));
   table.querySelectorAll('.alias-delete').forEach(btn => btn.onclick = () => deleteAlias(btn.dataset.aliasName));
@@ -119,6 +329,7 @@ async function saveAlias(name) {
   try {
     current = await api('/admin/api/aliases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, candidates }) });
     renderAliases(current);
+    renderProviders(current);
     msg(`Alias "${name}" saved.`);
   } catch (e) { msg('Save failed: ' + e.message, true); }
 }
@@ -128,6 +339,7 @@ async function deleteAlias(name) {
   try {
     current = await api(`/admin/api/aliases/${encodeURIComponent(name)}`, { method: 'DELETE' });
     renderAliases(current);
+    renderProviders(current);
     msg(`Alias "${name}" deleted.`);
   } catch (e) { msg('Delete failed: ' + e.message, true); }
 }
@@ -139,6 +351,7 @@ document.getElementById('add-alias').onclick = async () => {
   try {
     current = await api('/admin/api/aliases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, candidates }) });
     renderAliases(current);
+    renderProviders(current);
     document.getElementById('new-alias-name').value = '';
     document.getElementById('new-alias-candidates').value = '';
     msg(`Alias "${name}" added.`);
@@ -179,9 +392,19 @@ async function loadBreakers() {
     entries.map(([name, s]) => `<tr><td>${name}</td><td><span class="pill ${s.state === 'closed' ? 'ok' : 'bad'}">${s.state}</span></td><td>${s.failures}</td><td>${s.retry_in_seconds}s</td></tr>`).join('');
 }
 
+function renderTokens(m) {
+  const table = document.getElementById('tokens-table');
+  const entries = Object.entries(m.providers || {}).filter(([, v]) => v.total_tokens);
+  table.innerHTML = '<tr><th>Provider</th><th>Prompt</th><th>Completion</th><th>Total</th></tr>' +
+    (entries.length
+      ? entries.map(([name, v]) => `<tr><td>${name}</td><td>${v.prompt_tokens}</td><td>${v.completion_tokens}</td><td>${v.total_tokens}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="muted">No token usage recorded yet.</td></tr>');
+}
+
 async function loadMetrics() {
   const m = await fetch('/metrics/json').then(r => r.json());
   document.getElementById('metrics-pre').textContent = JSON.stringify(m, null, 2);
+  renderTokens(m);
 }
 
 document.getElementById('save').onclick = async () => {
