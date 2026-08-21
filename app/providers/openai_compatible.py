@@ -66,6 +66,8 @@ class OpenAICompatibleProvider(BaseProvider):
                 payload['tools'] = [*payload.get('tools', []), tool]
         payload['model'] = provider_model
         payload['stream'] = stream
+        if stream:
+            payload['stream_options'] = {'include_usage': True}
         return payload
 
     @staticmethod
