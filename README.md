@@ -29,6 +29,26 @@ Client
 - `GET /metrics/json` - metrics dạng JSON
 - `GET /v1/models` - danh sách alias model logic đã cấu hình
 - `POST /v1/chat/completions` - completion tương thích OpenAI, hỗ trợ streaming SSE thật
+- `GET /admin` - dashboard sửa API key / alias model tự do (thêm/sửa/xóa) / bật-tắt provider ngay trên trình duyệt (xem bên dưới)
+
+## Admin dashboard
+
+`GET /admin` cho phép sửa `ROUTER9_API_KEY`, API key của nvidia/groq/openrouter/tokenrouter/tavily,
+bật/tắt từng provider, và **thêm/sửa/xóa alias model tự do** (không giới hạn ở 4 alias mặc định) -
+ngay trên UI, không cần redeploy. Bật bằng cách set `ADMIN_PASSWORD` (mặc định rỗng = tắt dashboard);
+`ADMIN_USERNAME` mặc định `admin`. Xác thực bằng HTTP Basic Auth (trình duyệt tự hỏi đăng nhập).
+
+Alias model: mỗi alias là một tên (bất kỳ, không phân biệt hoa thường) gắn với chuỗi
+`provider:model,provider:model,...` theo thứ tự ưu tiên. 4 alias mặc định (`gpt-4o`, `gpt-4o-mini`,
+`gpt-4-turbo`, `gpt-3.5-turbo`) đọc từ env var lúc chưa có override; sửa hoặc xóa chúng trên dashboard
+sẽ ghi đè/loại bỏ hẳn, không quay lại giá trị env cho tới khi bấm "Reset to env defaults". Thêm alias
+mới hoàn toàn tự do, không giới hạn số lượng hay tên.
+
+Thay đổi được lưu vào Postgres (`DATABASE_URL`, bảng `router9_runtime_settings`) và áp dụng ngay lập
+tức trong process đang chạy - server chỉ chạy 1 worker nên không cần đồng bộ giữa các tiến trình. Nếu
+chưa cấu hình `DATABASE_URL`, dashboard vẫn chỉnh runtime được nhưng thay đổi mất khi service restart
+(Render free tier tự ngủ/khởi động lại). Đăng nhập ChatGPT vẫn đi qua `/auth/chatgpt` như cũ - dashboard
+không đụng vào token OAuth đó.
 
 ## Alias model
 

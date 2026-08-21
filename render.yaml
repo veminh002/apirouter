@@ -11,6 +11,13 @@ services:
       - key: ROUTER9_API_KEY
         generateValue: true
 
+      # /admin dashboard - edit provider keys, aliases, on/off from a browser.
+      # Blank ADMIN_PASSWORD keeps it disabled.
+      - key: ADMIN_USERNAME
+        value: "admin"
+      - key: ADMIN_PASSWORD
+        generateValue: true
+
       # ChatGPT OAuth: /auth/chatgpt starts the browser login.
       - key: CHATGPT_ACCESS_TOKEN
         sync: false
