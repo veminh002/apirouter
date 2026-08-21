@@ -164,6 +164,18 @@
   .bad{background:var(--bad-bg);color:var(--bad-fg)}
   .muted{color:var(--muted);font-size:12.5px}
   pre{white-space:pre-wrap;font-size:11.5px;margin:0;font-family:var(--mono);max-height:340px;overflow:auto}
+
+  .stat-row{display:flex;gap:12px;flex-wrap:wrap}
+  .stat-chip{
+    flex:1;min-width:130px;padding:14px 16px;border-radius:var(--radius-md);
+    background:rgba(255,255,255,.5);border:1px solid rgba(60,60,67,.1);
+  }
+  .stat-chip .stat-value{font-size:22px;font-weight:700;letter-spacing:-.01em}
+  .stat-chip .stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  .status-breakdown{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .status-chip{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px}
+  .status-chip.s2{background:var(--ok-bg);color:var(--ok-fg)}
+  .status-chip.s5{background:var(--bad-bg);color:var(--bad-fg)}
 </style>
 </head>
 <body>
@@ -219,7 +231,8 @@
 
   <section class="tile tile-metrics glass">
     <h2 class="tile-title"><span class="dot"></span>Metrics</h2>
-    <pre id="metrics-pre"></pre>
+    <div class="stat-row" id="metrics-stats"></div>
+    <table id="metrics-table" style="margin-top:16px"></table>
   </section>
 
 </div>
@@ -401,9 +414,33 @@ function renderTokens(m) {
       : '<tr><td colspan="4" class="muted">No token usage recorded yet.</td></tr>');
 }
 
+function renderMetricsOverview(m) {
+  const requests = m.requests || {};
+  const total = Object.values(requests).reduce((a, b) => a + b, 0);
+  const errors = Object.entries(requests).filter(([code]) => !code.startsWith('2')).reduce((a, [, n]) => a + n, 0);
+  const successRate = total ? Math.round(((total - errors) / total) * 1000) / 10 : 100;
+
+  document.getElementById('metrics-stats').innerHTML = `
+    <div class="stat-chip"><div class="stat-value">${total}</div><div class="stat-label">Total requests</div></div>
+    <div class="stat-chip"><div class="stat-value">${successRate}%</div><div class="stat-label">Success rate</div></div>
+    <div class="stat-chip"><div class="stat-value">${m.fallbacks || 0}</div><div class="stat-label">Fallbacks</div></div>
+    <div class="stat-chip">
+      <div class="stat-label">By status</div>
+      <div class="status-breakdown">${Object.entries(requests).map(([code, n]) => `<span class="status-chip ${code.startsWith('2') ? 's2' : 's5'}">${code}: ${n}</span>`).join('') || '<span class="muted">no requests yet</span>'}</div>
+    </div>
+  `;
+
+  const entries = Object.entries(m.providers || {});
+  const table = document.getElementById('metrics-table');
+  table.innerHTML = '<tr><th>Provider</th><th>Requests</th><th>Errors</th><th>Avg latency</th></tr>' +
+    (entries.length
+      ? entries.map(([name, v]) => `<tr><td>${name}</td><td>${v.requests}</td><td>${v.errors}</td><td>${v.avg_latency_ms} ms</td></tr>`).join('')
+      : '<tr><td colspan="4" class="muted">No provider activity yet.</td></tr>');
+}
+
 async function loadMetrics() {
   const m = await fetch('/metrics/json').then(r => r.json());
-  document.getElementById('metrics-pre').textContent = JSON.stringify(m, null, 2);
+  renderMetricsOverview(m);
   renderTokens(m);
 }
 
