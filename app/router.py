@@ -5,10 +5,12 @@ from typing import AsyncIterator, Dict, Optional
 
 from .circuit_breaker import CircuitBreaker
 from .metrics import Metrics
-from .models import ChatCompletionRequest, ProviderResult
+from .models import ChatCompletionRequest, Message, ProviderResult
 from .provider_registry import ProviderRegistry
 from .providers.base import ProviderError
+from .realtime import detect_realtime
 from .routing import RoutingPolicy
+from .tavily import TavilyClient, extract_last_user_text, format_search_context
 
 logger = logging.getLogger('9router.router')
 
@@ -26,12 +28,14 @@ class _NullAsyncContext:
 
 
 class ProviderRouter:
-    def __init__(self, registry: ProviderRegistry, policy: RoutingPolicy, max_retries=1, breaker=None, metrics=None, semaphore: Optional[asyncio.Semaphore] = None):
+    def __init__(self, registry: ProviderRegistry, policy: RoutingPolicy, max_retries=1, breaker=None, metrics=None, semaphore: Optional[asyncio.Semaphore] = None, search_client: Optional[TavilyClient] = None, search_mode: str = 'off'):
         self.registry = registry
         self.policy = policy
         self.max_retries = max(0, max_retries)
         self.breaker = breaker or CircuitBreaker()
         self.metrics = metrics or Metrics()
+        self.search_client = search_client
+        self.search_mode = (search_mode or 'off').strip().lower()
         # Held only around the actual outbound HTTP call below, not around
         # retry backoff sleeps. Previously the caller (main.py) wrapped the
         # *entire* complete() call - including every `asyncio.sleep(delay)`
@@ -40,7 +44,28 @@ class ProviderRouter:
         # exactly when the server needs that slot free for other requests.
         self.semaphore = semaphore or _NullAsyncContext()
 
+    async def _augment_with_search(self, req: ChatCompletionRequest) -> ChatCompletionRequest:
+        if not self.search_client or self.search_mode == 'off':
+            return req
+        if self.search_mode == 'auto' and not detect_realtime(req.messages).needs_fresh_info:
+            return req
+        query = extract_last_user_text(req.messages)
+        if not query:
+            return req
+        try:
+            results = await self.search_client.search(query)
+        except Exception as e:
+            logger.warning('Tavily search failed, continuing without web context: %s', e)
+            return req
+        context = format_search_context(query, results)
+        if not context:
+            return req
+        messages = list(req.messages)
+        messages.insert(len(messages) - 1, Message(role='system', content=context))
+        return req.model_copy(update={'messages': messages})
+
     async def complete(self, req: ChatCompletionRequest):
+        req = await self._augment_with_search(req)
         errors = []
         route = self.policy.resolve(req.model)
         for index, (provider_name, provider_model) in enumerate(route.providers):
@@ -90,6 +115,7 @@ class ProviderRouter:
         return None, errors
 
     async def stream(self, req: ChatCompletionRequest) -> AsyncIterator[Dict]:
+        req = await self._augment_with_search(req)
         errors = []
         route = self.policy.resolve(req.model)
         for index, (provider_name, provider_model) in enumerate(route.providers):

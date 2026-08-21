@@ -24,6 +24,7 @@ from .providers.tokenrouter import TokenRouterProvider
 from .rate_limit import RateLimiter
 from .router import ProviderRouter
 from .routing import ModelAlias, RoutingPolicy
+from .tavily import TavilyClient
 
 logger = logging.getLogger('9router')
 
@@ -74,7 +75,11 @@ policy = RoutingPolicy({
     'gpt-4-turbo': ModelAlias('gpt-4-turbo', settings.parse_candidates(settings.alias_gpt_4_turbo)),
     'gpt-3.5-turbo': ModelAlias('gpt-3.5-turbo', settings.parse_candidates(settings.alias_gpt_3_5_turbo)),
 })
-router = ProviderRouter(registry, policy, settings.max_retries, breaker, metrics, semaphore=semaphore)
+router = ProviderRouter(
+    registry, policy, settings.max_retries, breaker, metrics, semaphore=semaphore,
+    search_client=TavilyClient(settings.tavily_api_key, settings.provider_timeout, settings.tavily_max_results) if settings.tavily_api_key else None,
+    search_mode=settings.tavily_search_mode,
+)
 
 
 async def auth_and_limit(authorization: Optional[str]):

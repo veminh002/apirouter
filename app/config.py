@@ -8,6 +8,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', extra='ignore', case_sensitive=False)
 
     router9_api_key: str = ''
+
+    tavily_api_key: str = ''
+    # Chạy trước router.complete()/stream(), kết quả chèn vào messages cho
+    # MỌI provider (chatgpt, nvidia, tokenrouter, groq, openrouter) dùng
+    # chung - thay cho từng provider tự search riêng lẻ. off|auto|always,
+    # cùng semantics với *_web_search_mode.
+    tavily_search_mode: str = 'auto'
+    tavily_max_results: int = 5
+
     chatgpt_refresh_token: str = ''
     chatgpt_access_token: str = ''
     chatgpt_access_token_expires_in: int = 0
@@ -24,7 +33,7 @@ class Settings(BaseSettings):
     database_url: str = ''
     chatgpt_token_encryption_key: str = ''
     chatgpt_keepalive_hours: float = 6.0
-    chatgpt_web_search_mode: str = 'auto'
+    chatgpt_web_search_mode: str = 'off'
     chatgpt_web_search_instruction: str = (
         'When this request depends on information that may have changed recently, '
         'use ChatGPT Web native search/browsing when available in this conversation. '
@@ -45,7 +54,9 @@ class Settings(BaseSettings):
 
     # Groq's "compound" models run their own built-in web-search tool
     # server-side, so search here just means swapping to that model.
-    groq_web_search_mode: str = 'auto'
+    # Off by default: Tavily now provides web context centrally for all
+    # providers, so no single provider needs to search on its own.
+    groq_web_search_mode: str = 'off'
     groq_web_search_model: str = 'groq/compound-mini'
 
     # OpenRouter exposes web search as a server tool, but unlike ChatGPT/Groq
